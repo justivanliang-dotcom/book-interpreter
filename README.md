@@ -5,9 +5,13 @@
 ## 功能
 
 - **章节解析**：自动识别 Markdown 标题或常见章节格式（第X章 / Chapter X）
+
 - **章节摘要 + 全书解读**：逐章摘要、全书概述、核心观点提炼
+
 - **金句摘录**：自动提取书中代表性金句
+
 - **内容问答**：基于 TF-IDF 检索 + LLM 生成答案（RAG）
+
 - **结果导出**：Markdown / HTML 报告
 
 ## 安装
@@ -41,6 +45,16 @@ python -m book_interpreter.cli interpret sample/sample_book.md --format html -o 
 python -m book_interpreter.cli ask sample/sample_book.md "刻意练习的核心是什么？"
 ```
 
+## Web 版（本地应用）
+
+基于 FastAPI + 原生前端，在浏览器中完成上传、解读、问答与导出：
+
+```bash
+python -m webapp.main
+```
+
+启动后访问 <http://127.0.0.1:8000> 即可使用。解读与问答同样需要配置 `LLM_API_KEY`。
+
 ## 测试
 
 ```bash
@@ -59,4 +73,8 @@ book_interpreter/
 ├── qa.py            # 内容问答
 ├── exporter.py      # Markdown/HTML 导出
 └── cli.py           # 命令行入口
+webapp/
+├── main.py          # FastAPI 后端（上传/解读/问答/导出）
+└── static/          # 前端页面（HTML/CSS/JS）
 ```
+
