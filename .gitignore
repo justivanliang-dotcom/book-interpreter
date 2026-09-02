@@ -20,6 +20,7 @@ Desktop.ini
 .cache/
 node_modules/
 __pycache__/
+.pytest_cache/
 *.pyc
 
 # 压缩包/备份
