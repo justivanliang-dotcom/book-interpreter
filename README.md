@@ -76,5 +76,7 @@ book_interpreter/
 webapp/
 ├── main.py          # FastAPI 后端（上传/解读/问答/导出）
 └── static/          # 前端页面（HTML/CSS/JS）
+demo/
+└── demo_interpret.py  # 模拟 LLM 演示脚本（无需 API 密钥）
 ```
 
