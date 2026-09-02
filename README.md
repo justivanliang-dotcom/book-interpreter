@@ -22,13 +22,20 @@ pip install -r requirements.txt
 
 ## 配置 LLM
 
-通过环境变量配置 OpenAI 兼容接口：
+通过环境变量或项目根目录的 `.env` 文件配置 OpenAI 兼容接口：
 
 ```bash
+# 方式一：环境变量
 set LLM_API_KEY=your_api_key
-set LLM_BASE_URL=https://api.openai.com/v1   # 可选，默认 OpenAI
-set LLM_MODEL=gpt-4o-mini                     # 可选
+set LLM_BASE_URL=https://api.deepseek.com   # 可选，默认 OpenAI
+set LLM_MODEL=deepseek-chat                 # 可选
+
+# 方式二：.env 文件（推荐，持久保存）
+Copy-Item .env.example .env
+# 然后编辑 .env，填入 LLM_API_KEY
 ```
+
+`.env` 文件已被 `.gitignore` 忽略，密钥不会提交到仓库。
 
 ## 使用
 
@@ -44,16 +51,6 @@ python -m book_interpreter.cli interpret sample/sample_book.md --format html -o 
 ```bash
 python -m book_interpreter.cli ask sample/sample_book.md "刻意练习的核心是什么？"
 ```
-
-## Web 版（本地应用）
-
-基于 FastAPI + 原生前端，在浏览器中完成上传、解读、问答与导出：
-
-```bash
-python -m webapp.main
-```
-
-启动后访问 <http://127.0.0.1:8000> 即可使用。解读与问答同样需要配置 `LLM_API_KEY`。
 
 ## 测试
 
@@ -73,10 +70,5 @@ book_interpreter/
 ├── qa.py            # 内容问答
 ├── exporter.py      # Markdown/HTML 导出
 └── cli.py           # 命令行入口
-webapp/
-├── main.py          # FastAPI 后端（上传/解读/问答/导出）
-└── static/          # 前端页面（HTML/CSS/JS）
-demo/
-└── demo_interpret.py  # 模拟 LLM 演示脚本（无需 API 密钥）
 ```
 

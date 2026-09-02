@@ -1,6 +1,6 @@
 """LLM 客户端抽象，支持 OpenAI 兼容接口。
 
-通过环境变量配置：
+通过环境变量或项目根目录的 .env 文件配置：
 - LLM_API_KEY: API 密钥
 - LLM_BASE_URL: API 基础地址（默认 https://api.openai.com/v1）
 - LLM_MODEL: 模型名称（默认 gpt-4o-mini）
@@ -9,8 +9,29 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import requests
+
+
+def _load_dotenv(path: Path | None = None) -> None:
+    """加载 .env 文件到环境变量（不覆盖已存在的环境变量）。"""
+    if path is None:
+        path = Path(__file__).resolve().parents[1] / ".env"
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
 
 
 class LLMError(RuntimeError):
