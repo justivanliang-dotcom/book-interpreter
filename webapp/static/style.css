@@ -89,59 +89,55 @@ body {
 .status { color: var(--accent2); font-size: 0.82rem; margin-top: 0.6rem; text-align: center; min-height: 1.2em; }
 .status.error { color: #b3452f; }
 
+.upload-card .btn.accent { margin-top: 0.7rem; }
+
 .book-card h2 { font-family: var(--font-head); font-size: 1.2rem; margin-bottom: 0.2rem; }
 .book-card .meta { color: var(--muted); font-size: 0.8rem; margin-bottom: 0.9rem; word-break: break-all; }
 .book-card h3 { font-size: 0.9rem; color: var(--accent); margin: 1rem 0 0.4rem; }
 #chapter-list { list-style: none; }
-#chapter-list li {
-  padding: 0.4rem 0.5rem;
+#chapter-list li.chapter-item {
   border-bottom: 1px dashed rgba(47,107,79,0.15);
   font-size: 0.85rem;
 }
-#chapter-list li:last-child { border-bottom: none; }
-#chapter-list .idx { color: var(--accent2); font-weight: 700; margin-right: 0.4rem; }
-#chapter-list li.chapter-item {
+#chapter-list li.chapter-item:last-child { border-bottom: none; }
+#chapter-list .chapter-head {
+  padding: 0.4rem 0.5rem;
   cursor: pointer;
   border-radius: 8px;
   transition: background 0.15s;
 }
-#chapter-list li.chapter-item:hover { background: rgba(47,107,79,0.08); }
-
-.chapter-view-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.6rem;
+#chapter-list .chapter-head:hover { background: rgba(47,107,79,0.08); }
+#chapter-list .chapter-expand {
+  padding: 0.5rem 0.5rem 0.6rem;
+  background: rgba(47,107,79,0.05);
+  border-radius: 8px;
+  margin: 0 0 0.4rem;
 }
-.chapter-view h2 { font-family: var(--font-head); font-size: 1.25rem; color: var(--accent); }
 .ratio-row {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.9rem;
-  padding: 0.7rem 0.9rem;
-  background: rgba(47,107,79,0.06);
-  border-radius: 10px;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
-.ratio-row label { font-size: 0.85rem; color: var(--muted); }
+.ratio-row label { font-size: 0.8rem; color: var(--muted); }
 .ratio-row select {
-  padding: 0.35rem 0.6rem;
+  padding: 0.3rem 0.5rem;
   border: 1px solid var(--rule);
   border-radius: 8px;
   font-family: var(--font);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   background: #fff;
 }
-.btn.primary.small { width: auto; padding: 0.4rem 0.9rem; font-size: 0.82rem; }
-.chapter-view-content { color: var(--ink); }
-.chapter-view-content .chapter-summary {
+.btn.primary.small { width: auto; padding: 0.35rem 0.8rem; font-size: 0.8rem; }
+.chapter-summary {
+  margin-top: 0.6rem;
   white-space: pre-wrap;
-  line-height: 1.9;
-  font-size: 0.95rem;
+  line-height: 1.8;
+  font-size: 0.88rem;
+  color: var(--ink);
 }
-.chapter-view-content .loading { color: var(--muted); text-align: center; padding: 2rem 0; }
-.chapter-view-content .error { color: #b3452f; }
+.chapter-summary .loading { color: var(--muted); text-align: center; padding: 0.8rem 0; }
+.chapter-summary .error { color: #b3452f; }
 
 .empty { text-align: center; color: var(--muted); padding: 3rem 1rem; }
 

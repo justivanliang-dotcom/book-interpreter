@@ -19,6 +19,7 @@
     <div class="card upload-card">
       <input type="file" id="file-input" accept=".txt,.md" hidden>
       <button class="btn primary" id="upload-btn">上传书籍</button>
+      <button class="btn accent" id="interpret-btn" disabled>生成全书概述</button>
       <p class="hint">支持 TXT / Markdown</p>
       <p class="status" id="upload-status"></p>
     </div>
@@ -26,7 +27,6 @@
     <div class="card book-card" id="book-card" hidden>
       <h2 id="book-title"></h2>
       <p class="meta" id="book-filename"></p>
-      <button class="btn accent" id="interpret-btn">开始解读</button>
       <h3>章节</h3>
       <ul id="chapter-list"></ul>
     </div>
@@ -35,25 +35,6 @@
   <section class="content">
     <div class="card empty" id="empty-state">
       <p>上传一本 TXT/Markdown 书籍，开始生成解读报告</p>
-    </div>
-
-    <div class="card chapter-view" id="chapter-view" hidden>
-      <div class="chapter-view-head">
-        <h2 id="chapter-view-title"></h2>
-        <button class="btn ghost" id="chapter-view-close">关闭</button>
-      </div>
-      <div class="ratio-row">
-        <label for="chapter-ratio">浓缩比例</label>
-        <select id="chapter-ratio">
-          <option value="0.1">10%</option>
-          <option value="0.25" selected>25%</option>
-          <option value="0.5">50%</option>
-          <option value="0.75">75%</option>
-          <option value="1">100%</option>
-        </select>
-        <button class="btn primary small" id="summarize-btn">浓缩本章</button>
-      </div>
-      <div class="chapter-view-content" id="chapter-view-content"></div>
     </div>
 
     <div class="card report" id="report" hidden>

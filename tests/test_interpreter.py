@@ -101,16 +101,22 @@ def test_summarize_chapter_by_ratio(fake_llm):
     # 10% → 约200字
     summarize_chapter(fake_llm, chapter.title, chapter.content, 0.1)
     assert "约 200 字" in fake_llm.calls[-1]
+    assert "160~240" in fake_llm.calls[-1]
     # 50% → 约1000字
     summarize_chapter(fake_llm, chapter.title, chapter.content, 0.5)
     assert "约 1000 字" in fake_llm.calls[-1]
-    # 100% → 上限为原文字数（2000字），而非固定3000
-    summarize_chapter(fake_llm, chapter.title, chapter.content, 1.0)
-    assert "约 2000 字" in fake_llm.calls[-1]
+
+
+def test_summarize_chapter_full_returns_original(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 约2000字
+    calls_before = len(fake_llm.calls)
+    result = summarize_chapter(fake_llm, chapter.title, chapter.content, 1.0)
+    assert result == chapter.content  # 100% 直接返回原文
+    assert len(fake_llm.calls) == calls_before  # 不调用 LLM
 
 
 def test_summarize_chapter_floor_100(fake_llm):
-    chapter = Chapter(title="短章", content="内容" * 30, order=0)  # 60字
+    chapter = Chapter(title="短章", content="内容" * 100, order=0)  # 200字
     summarize_chapter(fake_llm, chapter.title, chapter.content, 0.1)
     assert "约 100 字" in fake_llm.calls[-1]
 

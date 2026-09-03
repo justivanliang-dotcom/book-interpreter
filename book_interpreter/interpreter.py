@@ -24,14 +24,21 @@ def summarize_chapter(
     ratio 为 0~1 的比例值，目标字数 = 原文字数 × ratio，
     上限为原文字数（不设固定上限），下限为 100 字；
     max_words 可额外限制目标字数上限（用于报告等固定长度场景）。
+    当目标字数达到原文字数时（如 100%），直接返回原文，不再调用 LLM。
     """
     content_length = len(content)
     target_words = max(100, min(content_length, int(content_length * ratio)))
     if max_words is not None:
         target_words = min(target_words, max_words)
+    if target_words >= content_length:
+        return content
+    lower = max(50, int(target_words * 0.8))
+    upper = int(target_words * 1.2)
     prompt = (
-        f"请为以下书籍章节生成一段中文浓缩摘要，约 {target_words} 字，"
-        f"概括本章的核心内容和主要观点。\n\n章节标题：{title}\n\n章节内容：\n{_truncate(content, 20000)}"
+        f"请将以下书籍章节浓缩为一段中文摘要，目标字数约 {target_words} 字"
+        f"（请尽量接近该字数，允许在 {lower}~{upper} 字之间），"
+        f"概括本章的核心内容和主要观点。\n\n"
+        f"章节标题：{title}\n\n章节内容：\n{_truncate(content, 20000)}"
     )
     return llm.complete(prompt, max_tokens=min(target_words * 2, 16000))
 

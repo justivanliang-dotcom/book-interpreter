@@ -3,7 +3,6 @@
     bookId: null,
     chapters: [],
     interpreting: false,
-    currentChapter: -1,
     chapterRatios: {},
     chapterSummaries: {}
   };
@@ -26,12 +25,6 @@
   var questionInput = $('question-input');
   var askBtn = $('ask-btn');
   var answer = $('answer');
-  var chapterView = $('chapter-view');
-  var chapterViewTitle = $('chapter-view-title');
-  var chapterViewContent = $('chapter-view-content');
-  var chapterRatio = $('chapter-ratio');
-  var summarizeBtn = $('summarize-btn');
-  var chapterViewClose = $('chapter-view-close');
 
   function setStatus(msg, isError) {
     uploadStatus.textContent = msg || '';
@@ -61,76 +54,106 @@
     state.chapters = book.chapters;
     state.chapterRatios = {};
     state.chapterSummaries = {};
-    state.currentChapter = -1;
     bookTitle.textContent = book.title;
     bookFilename.textContent = book.filename;
     chapterList.innerHTML = '';
     book.chapters.forEach(function (ch, i) {
-      var li = document.createElement('li');
-      li.className = 'chapter-item';
-      var idx = document.createElement('span');
-      idx.className = 'idx';
-      idx.textContent = (i + 1) + '.';
-      li.appendChild(idx);
-      li.appendChild(document.createTextNode(ch.title));
-      li.addEventListener('click', function () { openChapterView(i); });
-      chapterList.appendChild(li);
+      chapterList.appendChild(buildChapterItem(i, ch.title));
     });
     bookCard.hidden = false;
     emptyState.hidden = true;
     report.hidden = true;
     qaCard.hidden = true;
-    chapterView.hidden = true;
+    interpretBtn.disabled = false;
     answer.className = 'answer';
     questionInput.value = '';
   }
 
-  function updateChapterTitle(index, title) {
-    var items = chapterList.querySelectorAll('li');
-    if (items[index]) {
-      var textNode = items[index].childNodes[1];
-      if (textNode) textNode.nodeValue = title;
-    }
+  function buildChapterItem(index, title) {
+    var li = document.createElement('li');
+    li.className = 'chapter-item';
+    li.dataset.index = String(index);
+
+    var head = document.createElement('div');
+    head.className = 'chapter-head';
+    head.textContent = title;
+    head.addEventListener('click', function () { toggleChapter(index); });
+
+    var expand = document.createElement('div');
+    expand.className = 'chapter-expand';
+    expand.hidden = true;
+
+    var ratioRow = document.createElement('div');
+    ratioRow.className = 'ratio-row';
+    var label = document.createElement('label');
+    label.textContent = '浓缩比例';
+    var select = document.createElement('select');
+    select.className = 'chapter-ratio';
+    [0.1, 0.25, 0.5, 0.75, 1].forEach(function (v) {
+      var opt = document.createElement('option');
+      opt.value = String(v);
+      opt.textContent = Math.round(v * 100) + '%';
+      if (v === 0.25) opt.selected = true;
+      select.appendChild(opt);
+    });
+    var btn = document.createElement('button');
+    btn.className = 'btn primary small summarize-btn';
+    btn.textContent = '浓缩本章';
+    ratioRow.appendChild(label);
+    ratioRow.appendChild(select);
+    ratioRow.appendChild(btn);
+
+    var summaryBox = document.createElement('div');
+    summaryBox.className = 'chapter-summary';
+
+    expand.appendChild(ratioRow);
+    expand.appendChild(summaryBox);
+
+    select.addEventListener('change', function () { condenseChapter(index); });
+    btn.addEventListener('click', function () { condenseChapter(index); });
+
+    li.appendChild(head);
+    li.appendChild(expand);
+    return li;
   }
 
-  function openChapterView(index) {
-    state.currentChapter = index;
-    chapterViewTitle.textContent = state.chapters[index].title;
-    chapterRatio.value = String(state.chapterRatios[index] || 0.25);
-    chapterView.hidden = false;
-    condenseChapter();
+  function toggleChapter(index) {
+    var li = chapterList.querySelector('li[data-index="' + index + '"]');
+    if (!li) return;
+    var expand = li.querySelector('.chapter-expand');
+    expand.hidden = !expand.hidden;
+    if (!expand.hidden) condenseChapter(index);
   }
 
-  function condenseChapter() {
-    var index = state.currentChapter;
-    if (index < 0) return;
-    var ratio = parseFloat(chapterRatio.value);
+  function condenseChapter(index) {
+    var li = chapterList.querySelector('li[data-index="' + index + '"]');
+    if (!li) return;
+    var select = li.querySelector('.chapter-ratio');
+    var btn = li.querySelector('.summarize-btn');
+    var summaryBox = li.querySelector('.chapter-summary');
+    var ratio = parseFloat(select.value);
     state.chapterRatios[index] = ratio;
     var cached = state.chapterSummaries[index];
     if (cached && cached.ratio === ratio) {
-      chapterViewContent.innerHTML = '<div class="chapter-summary">' + escapeHtml(cached.summary) + '</div>';
+      summaryBox.innerHTML = escapeHtml(cached.summary);
       return;
     }
-    chapterViewContent.innerHTML = '<div class="loading">浓缩中...</div>';
-    summarizeBtn.disabled = true;
+    summaryBox.innerHTML = '<div class="loading">浓缩中...</div>';
+    btn.disabled = true;
     api('/api/books/' + state.bookId + '/chapters/' + index + '/summarize?ratio=' + ratio, { method: 'POST' })
       .then(function (data) {
         state.chapterSummaries[index] = { ratio: ratio, summary: data.summary };
-        chapterViewTitle.textContent = data.title;
-        updateChapterTitle(index, data.title);
-        chapterViewContent.innerHTML = '<div class="chapter-summary">' + escapeHtml(data.summary) + '</div>';
+        var head = li.querySelector('.chapter-head');
+        if (head && head.textContent !== data.title) head.textContent = data.title;
+        summaryBox.innerHTML = escapeHtml(data.summary);
       })
       .catch(function (err) {
-        chapterViewContent.innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
+        summaryBox.innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
       })
       .finally(function () {
-        summarizeBtn.disabled = false;
+        btn.disabled = false;
       });
   }
-
-  chapterRatio.addEventListener('change', condenseChapter);
-  summarizeBtn.addEventListener('click', condenseChapter);
-  chapterViewClose.addEventListener('click', function () { chapterView.hidden = true; });
 
   function renderReport(interp) {
     overview.textContent = interp.overview;
@@ -169,14 +192,20 @@
   });
 
   interpretBtn.addEventListener('click', async function () {
-    if (state.interpreting) return;
+    if (state.interpreting || !state.bookId) return;
     state.interpreting = true;
     interpretBtn.disabled = true;
     interpretBtn.textContent = '生成中...';
     try {
       var interp = await api('/api/books/' + state.bookId + '/interpret', { method: 'POST' });
       renderReport(interp);
-      interp.chapters.forEach(function (ch, i) { updateChapterTitle(i, ch.title); });
+      interp.chapters.forEach(function (ch, i) {
+        var li = chapterList.querySelector('li[data-index="' + i + '"]');
+        if (li) {
+          var head = li.querySelector('.chapter-head');
+          if (head) head.textContent = ch.title;
+        }
+      });
     } catch (err) {
       setStatus(err.message, true);
     } finally {

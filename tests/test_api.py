@@ -100,7 +100,9 @@ def test_summarize_chapter_not_found():
 def test_summarize_chapter_llm_error():
     app.dependency_overrides[get_llm] = lambda: FailingLLM()
     try:
-        book = _upload().json()
+        # 章节内容足够长，确保触发 LLM 调用而非直接返回原文
+        content = f"# 测试书\n\n## 第一章\n{'内容' * 500}\n\n## 第二章\n{'内容' * 500}"
+        book = _upload(content=content).json()
         resp = client.post(f"/api/books/{book['id']}/chapters/0/summarize")
         assert resp.status_code == 502
         assert "LLM_API_KEY" in resp.json()["detail"]
