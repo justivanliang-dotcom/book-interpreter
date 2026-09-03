@@ -91,6 +91,15 @@ def test_summarize_chapter():
     assert data["summary"]
 
 
+def test_summarize_chapter_ratio_5_percent():
+    # 5% 比例应通过参数校验
+    content = f"# 测试书\n\n## 第一章\n{'内容' * 500}\n\n## 第二章\n{'内容' * 500}"
+    book = _upload(content=content).json()
+    resp = client.post(f"/api/books/{book['id']}/chapters/0/summarize?ratio=0.05")
+    assert resp.status_code == 200
+    assert resp.json()["summary"]
+
+
 def test_summarize_chapter_not_found():
     book = _upload().json()
     resp = client.post(f"/api/books/{book['id']}/chapters/99/summarize")

@@ -100,7 +100,7 @@
     label.textContent = '浓缩比例';
     var select = document.createElement('select');
     select.className = 'chapter-ratio';
-    [0.1, 0.25, 0.5, 0.75, 1].forEach(function (v) {
+    [0.05, 0.1, 0.25, 0.5, 0.75, 1].forEach(function (v) {
       var opt = document.createElement('option');
       opt.value = String(v);
       opt.textContent = Math.round(v * 100) + '%';
