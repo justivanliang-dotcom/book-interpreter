@@ -40,11 +40,22 @@
   }
 
   async function api(url, options) {
-    var resp = await fetch(url, options);
+    var resp;
+    try {
+      resp = await fetch(url, options);
+    } catch (e) {
+      throw new Error('网络连接失败，请检查服务是否运行或网络是否正常');
+    }
     if (!resp.ok) {
-      var err = {};
-      try { err = await resp.json(); } catch (e) { /* ignore */ }
-      throw new Error(err.detail || '请求失败');
+      var detail = '';
+      try {
+        var err = await resp.json();
+        detail = err.detail || '';
+      } catch (e) { /* ignore */ }
+      if (!detail) {
+        try { detail = await resp.text(); } catch (e) { /* ignore */ }
+      }
+      throw new Error(detail || ('请求失败（HTTP ' + resp.status + '）'));
     }
     return resp.json();
   }
