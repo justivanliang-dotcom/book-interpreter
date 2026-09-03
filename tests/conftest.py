@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from book_interpreter.llm import LLMClient
@@ -14,6 +16,14 @@ class FakeLLM(LLMClient):
         super().__init__(api_key="test-key")
 
     def complete(self, prompt: str, system: str = "", max_tokens: int = 2000) -> str:
+        if "开头行" in prompt:
+            lines = [ln for ln in prompt.splitlines() if re.match(r"^\d+\.\s", ln)]
+            out = []
+            for ln in lines:
+                m = re.search(r"(第\s*[0-9一二三四五六七八九十]+\s*[章节回部卷篇])", ln)
+                marker = m.group(1) if m else "章节"
+                out.append(f"{marker} 测试标题")
+            return "\n".join(out)
         if "金句" in prompt:
             return "- 金句一\n- 金句二\n- 金句三"
         if "核心观点" in prompt:

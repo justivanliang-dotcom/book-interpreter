@@ -37,6 +37,14 @@ def _is_markdown(text: str) -> bool:
     return False
 
 
+def starts_with_marker(line: str) -> bool:
+    """判断行首是否为章节标记（第X章、自序、结语等）。"""
+    for pattern in (_INLINE_CHAPTER, _INLINE_FRONT, _INLINE_BACK, _INLINE_THANKS, _INLINE_EN):
+        if pattern.match(line):
+            return True
+    return False
+
+
 def _parse_markdown(text: str) -> list[Chapter]:
     """按 Markdown 标题切分章节。"""
     chapters: list[Chapter] = []

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .llm import LLMClient
 from .models import Book, Interpretation
+from .parser import starts_with_marker
 
 
 def _truncate(text: str, limit: int = 6000) -> str:
@@ -20,10 +21,51 @@ def summarize_chapter(llm: LLMClient, title: str, content: str) -> str:
     return llm.complete(prompt, max_tokens=500)
 
 
+def extract_chapter_titles(llm: LLMClient, book: Book) -> None:
+    """让 LLM 批量提取各章节准确标题，避免标题混入正文。
+
+    仅处理行首带章节标记的章节（纯文本书的标题与正文直接拼接，
+    无法用规则精确切分）；Markdown 书的标题取自标题行，无需处理。
+    """
+    chapters = book.chapters
+    if not chapters:
+        return
+    target_idx = [
+        i
+        for i, ch in enumerate(chapters)
+        if ch.content.strip()
+        and starts_with_marker(ch.content.split("\n", 1)[0].strip())
+    ]
+    if not target_idx:
+        return
+
+    lines = [
+        f"{i + 1}. {ch.content.split(chr(10), 1)[0].strip()}" for i, ch in enumerate(chapters)
+    ]
+    prompt = (
+        f"以下是书籍《{book.title}》各章节的开头行。每行是“章节编号+章节标题+正文开头”"
+        f"直接拼接而成，没有分隔符。请为每一行提取准确的章节标题（保留“第X章”等编号），"
+        f"不要包含正文。只输出标题，每行一个，不要编号。\n\n"
+        + "\n".join(lines)
+    )
+    raw = llm.complete(prompt, max_tokens=800).strip()
+    parsed = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if len(parsed) != len(chapters):
+        return
+    for i in target_idx:
+        title = parsed[i].strip()
+        # 仅去除成对包裹标题的外层引号，保留标题内部的引号（如“老板AI”）
+        if len(title) >= 2 and title[0] == title[-1] and title[0] in '"\'“”':
+            title = title[1:-1].strip()
+        if title and len(title) <= 60:
+            chapters[i].title = title
+
+
 def interpret_book(llm: LLMClient, book: Book) -> Interpretation:
     """对整本书进行解读：章节摘要 + 全书概述 + 核心观点 + 金句摘录。"""
     interp = Interpretation(book=book)
 
+    extract_chapter_titles(llm, book)
     for chapter in book.chapters:
         if chapter.content.strip():
             chapter.summary = summarize_chapter(llm, chapter.title, chapter.content)

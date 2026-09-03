@@ -90,6 +90,16 @@
     qaCard.hidden = false;
   }
 
+  function updateChapterTitles(chapters) {
+    var items = chapterList.querySelectorAll('li');
+    chapters.forEach(function (ch, i) {
+      if (items[i]) {
+        var textNode = items[i].childNodes[1];
+        if (textNode) textNode.nodeValue = ch.title;
+      }
+    });
+  }
+
   uploadBtn.addEventListener('click', function () { fileInput.click(); });
 
   fileInput.addEventListener('change', async function () {
@@ -116,6 +126,7 @@
     try {
       var interp = await api('/api/books/' + state.bookId + '/interpret', { method: 'POST' });
       renderReport(interp);
+      updateChapterTitles(interp.chapters);
     } catch (err) {
       setStatus(err.message, true);
     } finally {
