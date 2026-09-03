@@ -57,6 +57,13 @@ class InterpretOut(BaseModel):
     chapters: list[ChapterOut]
 
 
+class RawOut(BaseModel):
+    id: str
+    title: str
+    filename: str
+    text: str
+
+
 def _get_record(book_id: str) -> dict[str, Any]:
     record = _books.get(book_id)
     if record is None:
@@ -75,12 +82,28 @@ async def upload_book(file: UploadFile = File(...)) -> BookOut:
     if book.title == "未命名书籍":
         book.title = Path(file.filename).stem
     book_id = uuid4().hex[:8]
-    _books[book_id] = {"book": book, "filename": file.filename, "interpretation": None}
+    _books[book_id] = {
+        "book": book,
+        "filename": file.filename,
+        "raw_text": text,
+        "interpretation": None,
+    }
     return BookOut(
         id=book_id,
         title=book.title,
         filename=file.filename,
         chapters=[ChapterOut(title=c.title, summary=c.summary) for c in book.chapters],
+    )
+
+
+@app.get("/api/books/{book_id}/raw", response_model=RawOut)
+def raw(book_id: str) -> RawOut:
+    record = _get_record(book_id)
+    return RawOut(
+        id=book_id,
+        title=record["book"].title,
+        filename=record["filename"],
+        text=record["raw_text"],
     )
 
 

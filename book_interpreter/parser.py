@@ -1,4 +1,9 @@
-"""解析 TXT/Markdown 书籍内容，识别章节结构。"""
+"""解析 TXT/Markdown 书籍内容，识别章节结构。
+
+支持两种章节标记：
+- Markdown 标题（# 开头）
+- 章节标记（第X章、自序、结语等），可出现在行首或段落中间（内嵌）
+"""
 
 from __future__ import annotations
 
@@ -7,14 +12,21 @@ import re
 
 from .models import Book, Chapter
 
-# 常见章节标题模式（中文/英文）
-_CHAPTER_PATTERNS = [
-    re.compile(r"^\s*第\s*[0-9一二三四五六七八九十百千万零]+\s*[章节回部卷篇]\s*[^\n]*$"),
-    re.compile(r"^\s*Chapter\s+\d+[^\n]*$", re.IGNORECASE),
-    re.compile(r"^\s*Part\s+[IVX\d]+[^\n]*$", re.IGNORECASE),
-]
+# 章节/前言/结语标记（可出现在行首或段落中间）
+# 第X章 后必须跟空格，以区分"第1章 标题"与"第1章提到的"这类引用
+_INLINE_CHAPTER = re.compile(
+    r"第\s*[0-9一二三四五六七八九十百千万零]+\s*[章节回部卷篇]\s+"
+)
+_INLINE_FRONT = re.compile(r"(?:自序|序言|前言|引言|绪论|导言|推荐序|译者序)\s*[：:]")
+_INLINE_BACK = re.compile(r"(?:结语|结束语|后记|附录|跋)\s*[：:]")
+_INLINE_THANKS = re.compile(r"(?:^|[。！？\n\r])致谢")
+_INLINE_EN = re.compile(r"(?:Chapter|Part)\s+[IVX\d]+\s+", re.IGNORECASE)
 
-_MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+_MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s*(.*)$")
+
+# 内嵌标题的最大长度（标题后直接跟正文，无法精确切分，取近似值）
+_TITLE_MAX = 18
+_SENT_END = "。！？"
 
 
 def _is_markdown(text: str) -> bool:
@@ -44,35 +56,49 @@ def _parse_markdown(text: str) -> list[Chapter]:
         m = _MARKDOWN_HEADING.match(line)
         if m:
             flush()
-            current_title = m.group(2).strip()
+            current_title = m.group(2).strip() or "前言"
         else:
             current_lines.append(line)
     flush()
     return chapters
 
 
+def _extract_title(after: str) -> str:
+    """从标记后的文本中提取章节标题（近似）。"""
+    line = after.split("\n", 1)[0].strip()
+    for i, ch in enumerate(line):
+        if ch in _SENT_END:
+            line = line[:i]
+            break
+    if len(line) > _TITLE_MAX:
+        line = line[:_TITLE_MAX]
+    return line.strip()
+
+
 def _parse_plain_text(text: str) -> list[Chapter]:
-    """按常见章节标题模式切分纯文本。"""
+    """按章节标记切分纯文本，标记可内嵌在段落中间。"""
+    markers: list[tuple[int, int, str]] = []
+    for pattern in (_INLINE_CHAPTER, _INLINE_FRONT, _INLINE_BACK, _INLINE_THANKS, _INLINE_EN):
+        for m in pattern.finditer(text):
+            markers.append((m.start(), m.end(), m.group(0)))
+    if not markers:
+        return [Chapter(title="前言", content=text.strip(), order=0)]
+
+    markers.sort(key=lambda x: x[0])
     chapters: list[Chapter] = []
-    current_title = "前言"
-    current_lines: list[str] = []
-    order = 0
 
-    def flush() -> None:
-        nonlocal current_title, current_lines, order
-        content = "\n".join(current_lines).strip()
-        if content or chapters:
-            chapters.append(Chapter(title=current_title, content=content, order=order))
-            order += 1
-        current_lines = []
+    prefix = text[: markers[0][0]].strip()
+    if prefix:
+        chapters.append(Chapter(title="前言", content=prefix, order=0))
 
-    for line in text.splitlines():
-        if any(p.match(line) for p in _CHAPTER_PATTERNS):
-            flush()
-            current_title = line.strip()
-        else:
-            current_lines.append(line)
-    flush()
+    for i, (start, end, marker_text) in enumerate(markers):
+        next_start = markers[i + 1][0] if i + 1 < len(markers) else len(text)
+        after = text[end:next_start]
+        title = _extract_title(after)
+        clean_marker = marker_text.strip().lstrip("。！？\n\r ")
+        full_title = f"{clean_marker} {title}".strip()
+        content = text[start:next_start].strip()
+        chapters.append(Chapter(title=full_title, content=content, order=len(chapters)))
     return chapters
 
 

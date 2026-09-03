@@ -55,6 +55,21 @@ def test_upload_non_utf8():
     assert resp.status_code == 400
 
 
+def test_raw_returns_original_text():
+    content = "# 测试书\n\n## 第一章\n内容一\n\n## 第二章\n内容二"
+    book = _upload(content=content).json()
+    resp = client.get(f"/api/books/{book['id']}/raw")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["text"] == content
+    assert data["filename"] == "book.md"
+
+
+def test_raw_not_found():
+    resp = client.get("/api/books/nonexistent/raw")
+    assert resp.status_code == 404
+
+
 def test_interpret_book():
     book = _upload().json()
     resp = client.post(f"/api/books/{book['id']}/interpret")
