@@ -104,7 +104,7 @@
       var opt = document.createElement('option');
       opt.value = String(v);
       opt.textContent = Math.round(v * 100) + '%';
-      if (v === 0.25) opt.selected = true;
+      if (v === 0.1) opt.selected = true;
       select.appendChild(opt);
     });
     var btn = document.createElement('button');
@@ -133,7 +133,15 @@
     if (!li) return;
     var expand = li.querySelector('.chapter-expand');
     expand.hidden = !expand.hidden;
-    if (!expand.hidden) condenseChapter(index);
+    if (expand.hidden) return;
+    // 展开时只显示标题与比例选择，不自动浓缩；有缓存则展示缓存
+    var summaryBox = li.querySelector('.chapter-summary');
+    var cached = state.chapterSummaries[index];
+    if (cached) {
+      summaryBox.innerHTML = escapeHtml(cached.summary);
+    } else {
+      summaryBox.innerHTML = '<div class="hint">点击「浓缩本章」生成浓缩内容</div>';
+    }
   }
 
   function condenseChapter(index) {
