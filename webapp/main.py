@@ -7,13 +7,17 @@ from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from book_interpreter.exporter import export
-from book_interpreter.interpreter import interpret_book
+from book_interpreter.interpreter import (
+    extract_chapter_titles,
+    generate_overview,
+    summarize_chapter,
+)
 from book_interpreter.llm import LLMClient, LLMError
 from book_interpreter.parser import parse_book
 from book_interpreter.qa import answer_question
@@ -55,6 +59,11 @@ class InterpretOut(BaseModel):
     key_points: list[str]
     quotes: list[str]
     chapters: list[ChapterOut]
+
+
+class ChapterSummarizeOut(BaseModel):
+    title: str
+    summary: str
 
 
 class RawOut(BaseModel):
@@ -109,9 +118,13 @@ def raw(book_id: str) -> RawOut:
 
 @app.post("/api/books/{book_id}/interpret", response_model=InterpretOut)
 def interpret(book_id: str, llm: LLMClient = Depends(get_llm)) -> InterpretOut:
+    """仅生成全书概述、核心观点、金句；章节浓缩按需单独生成。"""
     record = _get_record(book_id)
+    if not record.get("titles_extracted"):
+        extract_chapter_titles(llm, record["book"])
+        record["titles_extracted"] = True
     try:
-        interp = interpret_book(llm, record["book"])
+        interp = generate_overview(llm, record["book"])
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
     record["interpretation"] = interp
@@ -123,6 +136,32 @@ def interpret(book_id: str, llm: LLMClient = Depends(get_llm)) -> InterpretOut:
             ChapterOut(title=c.title, summary=c.summary) for c in interp.book.chapters
         ],
     )
+
+
+@app.post("/api/books/{book_id}/chapters/{chapter_index}/summarize", response_model=ChapterSummarizeOut)
+def summarize_chapter_api(
+    book_id: str,
+    chapter_index: int,
+    ratio: float = Query(0.25, ge=0.05, le=1.0),
+    llm: LLMClient = Depends(get_llm),
+) -> ChapterSummarizeOut:
+    """按比例浓缩指定章节，长度上限为原文字数。"""
+    record = _get_record(book_id)
+    book = record["book"]
+    if chapter_index < 0 or chapter_index >= len(book.chapters):
+        raise HTTPException(status_code=404, detail="章节不存在")
+    chapter = book.chapters[chapter_index]
+    if not chapter.content.strip():
+        return ChapterSummarizeOut(title=chapter.title, summary="（本章无内容）")
+    if not record.get("titles_extracted"):
+        extract_chapter_titles(llm, book)
+        record["titles_extracted"] = True
+    try:
+        summary = summarize_chapter(llm, chapter.title, chapter.content, ratio)
+    except LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    chapter.summary = summary
+    return ChapterSummarizeOut(title=chapter.title, summary=summary)
 
 
 @app.post("/api/books/{book_id}/ask", response_model=AskOut)

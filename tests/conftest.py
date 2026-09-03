@@ -14,8 +14,10 @@ class FakeLLM(LLMClient):
 
     def __init__(self) -> None:
         super().__init__(api_key="test-key")
+        self.calls: list[str] = []
 
     def complete(self, prompt: str, system: str = "", max_tokens: int = 2000) -> str:
+        self.calls.append(prompt)
         if "开头行" in prompt:
             lines = [ln for ln in prompt.splitlines() if re.match(r"^\d+\.\s", ln)]
             out = []

@@ -12,13 +12,28 @@ def _truncate(text: str, limit: int = 6000) -> str:
     return text if len(text) <= limit else text[:limit] + "……（内容过长已截断）"
 
 
-def summarize_chapter(llm: LLMClient, title: str, content: str) -> str:
-    """生成单个章节的摘要。"""
+def summarize_chapter(
+    llm: LLMClient,
+    title: str,
+    content: str,
+    ratio: float = 0.25,
+    max_words: int | None = None,
+) -> str:
+    """生成单个章节的浓缩摘要，长度按原文比例计算。
+
+    ratio 为 0~1 的比例值，目标字数 = 原文字数 × ratio，
+    上限为原文字数（不设固定上限），下限为 100 字；
+    max_words 可额外限制目标字数上限（用于报告等固定长度场景）。
+    """
+    content_length = len(content)
+    target_words = max(100, min(content_length, int(content_length * ratio)))
+    if max_words is not None:
+        target_words = min(target_words, max_words)
     prompt = (
-        f"请为以下书籍章节生成一段简洁的中文摘要（150 字以内），"
-        f"概括本章的核心内容和主要观点。\n\n章节标题：{title}\n\n章节内容：\n{_truncate(content)}"
+        f"请为以下书籍章节生成一段中文浓缩摘要，约 {target_words} 字，"
+        f"概括本章的核心内容和主要观点。\n\n章节标题：{title}\n\n章节内容：\n{_truncate(content, 20000)}"
     )
-    return llm.complete(prompt, max_tokens=500)
+    return llm.complete(prompt, max_tokens=min(target_words * 2, 16000))
 
 
 def extract_chapter_titles(llm: LLMClient, book: Book) -> None:
@@ -61,6 +76,39 @@ def extract_chapter_titles(llm: LLMClient, book: Book) -> None:
             chapters[i].title = title
 
 
+def generate_overview(llm: LLMClient, book: Book) -> Interpretation:
+    """生成全书概述、核心观点、金句摘录（不生成章节浓缩）。
+
+    章节浓缩按需单独生成，此处仅以各章节开头片段作为概述依据。
+    """
+    interp = Interpretation(book=book)
+    preview_block = "\n".join(
+        f"- {c.title}：{_truncate(c.content, 300)}" for c in book.chapters if c.content.strip()
+    )
+
+    overview_prompt = (
+        f"请为《{book.title}》写一段全书概述（200 字以内），说明这本书的主旨和整体价值。\n\n"
+        f"各章节开头预览如下：\n{preview_block}"
+    )
+    interp.overview = llm.complete(overview_prompt, max_tokens=500)
+
+    points_prompt = (
+        f"请提炼《{book.title}》的 5 个核心观点，每个观点用一句话概括，用编号列表输出。\n\n"
+        f"各章节开头预览如下：\n{preview_block}"
+    )
+    points_text = llm.complete(points_prompt, max_tokens=800)
+    interp.key_points = _parse_list(points_text)
+
+    quotes_prompt = (
+        f"请从《{book.title}》中摘录 3 句最有代表性的金句，"
+        f"每句用引号括起来并注明出处章节，用编号列表输出。\n\n全书内容：\n{_truncate(book.full_text)}"
+    )
+    quotes_text = llm.complete(quotes_prompt, max_tokens=800)
+    interp.quotes = _parse_list(quotes_text)
+
+    return interp
+
+
 def interpret_book(llm: LLMClient, book: Book) -> Interpretation:
     """对整本书进行解读：章节摘要 + 全书概述 + 核心观点 + 金句摘录。"""
     interp = Interpretation(book=book)
@@ -68,7 +116,7 @@ def interpret_book(llm: LLMClient, book: Book) -> Interpretation:
     extract_chapter_titles(llm, book)
     for chapter in book.chapters:
         if chapter.content.strip():
-            chapter.summary = summarize_chapter(llm, chapter.title, chapter.content)
+            chapter.summary = summarize_chapter(llm, chapter.title, chapter.content, max_words=300)
 
     # 全书概述
     summary_block = "\n".join(

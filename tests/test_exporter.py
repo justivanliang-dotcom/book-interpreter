@@ -23,7 +23,7 @@ def test_export_markdown_contains_sections():
     md = export_markdown(_make_interp())
     assert "《测试书》解读报告" in md
     assert "全书概述" in md and "全书概述" in md
-    assert "章节摘要" in md
+    assert "章节浓缩" in md
     assert "核心观点" in md
     assert "金句摘录" in md
     assert "本章摘要" in md
@@ -35,9 +35,25 @@ def test_export_html_contains_sections():
     assert "<html" in html
     assert "《测试书》解读报告" in html
     assert "全书概述" in html
-    assert "章节摘要" in html
+    assert "章节浓缩" in html
     assert "核心观点" in html
     assert "金句摘录" in html
+
+
+def test_export_skips_empty_chapter_summaries():
+    book = Book(
+        title="测试书",
+        chapters=[
+            Chapter(title="第一章", content="内容", order=0, summary="本章摘要"),
+            Chapter(title="第二章", content="内容", order=1, summary=""),
+        ],
+    )
+    interp = Interpretation(book=book, overview="概述")
+    md = export_markdown(interp)
+    assert "第一章" in md and "本章摘要" in md
+    assert "第二章" not in md
+    html = export_html(interp)
+    assert "第二章" not in html
 
 
 def test_export_html_escapes_content():

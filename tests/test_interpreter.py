@@ -1,6 +1,12 @@
 """解读器测试。"""
 
-from book_interpreter.interpreter import _parse_list, extract_chapter_titles, interpret_book
+from book_interpreter.interpreter import (
+    _parse_list,
+    extract_chapter_titles,
+    generate_overview,
+    interpret_book,
+    summarize_chapter,
+)
 from book_interpreter.models import Book, Chapter
 from tests.conftest import FakeLLM
 
@@ -88,3 +94,38 @@ def test_parse_list_various_formats():
 def test_parse_list_empty():
     assert _parse_list("") == []
     assert _parse_list("  \n  ") == []
+
+
+def test_summarize_chapter_by_ratio(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 约2000字
+    # 10% → 约200字
+    summarize_chapter(fake_llm, chapter.title, chapter.content, 0.1)
+    assert "约 200 字" in fake_llm.calls[-1]
+    # 50% → 约1000字
+    summarize_chapter(fake_llm, chapter.title, chapter.content, 0.5)
+    assert "约 1000 字" in fake_llm.calls[-1]
+    # 100% → 上限为原文字数（2000字），而非固定3000
+    summarize_chapter(fake_llm, chapter.title, chapter.content, 1.0)
+    assert "约 2000 字" in fake_llm.calls[-1]
+
+
+def test_summarize_chapter_floor_100(fake_llm):
+    chapter = Chapter(title="短章", content="内容" * 30, order=0)  # 60字
+    summarize_chapter(fake_llm, chapter.title, chapter.content, 0.1)
+    assert "约 100 字" in fake_llm.calls[-1]
+
+
+def test_summarize_chapter_max_words_cap(fake_llm):
+    chapter = Chapter(title="长章", content="内容" * 1000, order=0)  # 2000字
+    summarize_chapter(fake_llm, chapter.title, chapter.content, 0.5, max_words=300)
+    assert "约 300 字" in fake_llm.calls[-1]
+
+
+def test_generate_overview_does_not_fill_chapter_summaries(fake_llm):
+    book = _make_book()
+    interp = generate_overview(fake_llm, book)
+    assert interp.overview
+    assert len(interp.key_points) == 5
+    assert len(interp.quotes) == 3
+    assert book.chapters[0].summary == ""
+    assert book.chapters[1].summary == ""

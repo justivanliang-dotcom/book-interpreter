@@ -17,14 +17,16 @@ def export_markdown(interp: Interpretation) -> str:
         "",
         interp.overview or "（暂无）",
         "",
-        "## 章节摘要",
-        "",
     ]
-    for chapter in book.chapters:
-        lines.append(f"### {chapter.title}")
+    summarized = [c for c in book.chapters if c.summary]
+    if summarized:
+        lines.append("## 章节浓缩")
         lines.append("")
-        lines.append(chapter.summary or "（暂无摘要）")
-        lines.append("")
+        for chapter in summarized:
+            lines.append(f"### {chapter.title}")
+            lines.append("")
+            lines.append(chapter.summary)
+            lines.append("")
 
     lines.append("## 核心观点")
     lines.append("")
@@ -52,12 +54,16 @@ def export_html(interp: Interpretation) -> str:
     book = interp.book
     title = html.escape(book.title)
 
+    summarized = [c for c in book.chapters if c.summary]
     chapters_html = []
-    for chapter in book.chapters:
+    for chapter in summarized:
         chapters_html.append(
             f"<h2>{html.escape(chapter.title)}</h2>"
-            f"<p>{html.escape(chapter.summary or '（暂无摘要）')}</p>"
+            f"<p>{html.escape(chapter.summary)}</p>"
         )
+    chapters_section = (
+        f"<h2>章节浓缩</h2>\n{''.join(chapters_html)}" if chapters_html else ""
+    )
 
     points_html = "".join(
         f"<li>{html.escape(p)}</li>" for p in interp.key_points
@@ -88,8 +94,7 @@ def export_html(interp: Interpretation) -> str:
 <h2>全书概述</h2>
 <div class="overview"><p>{html.escape(interp.overview or '（暂无）')}</p></div>
 
-<h2>章节摘要</h2>
-{''.join(chapters_html)}
+{chapters_section}
 
 <h2>核心观点</h2>
 <ul>{points_html}</ul>

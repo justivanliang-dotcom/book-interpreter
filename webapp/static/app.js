@@ -1,5 +1,12 @@
 (function () {
-  var state = { bookId: null, interpreting: false };
+  var state = {
+    bookId: null,
+    chapters: [],
+    interpreting: false,
+    currentChapter: -1,
+    chapterRatios: {},
+    chapterSummaries: {}
+  };
 
   var $ = function (id) { return document.getElementById(id); };
   var fileInput = $('file-input');
@@ -13,17 +20,30 @@
   var emptyState = $('empty-state');
   var report = $('report');
   var overview = $('overview');
-  var chapterSummaries = $('chapter-summaries');
   var keyPoints = $('key-points');
   var quotes = $('quotes');
   var qaCard = $('qa-card');
   var questionInput = $('question-input');
   var askBtn = $('ask-btn');
   var answer = $('answer');
+  var chapterView = $('chapter-view');
+  var chapterViewTitle = $('chapter-view-title');
+  var chapterViewContent = $('chapter-view-content');
+  var chapterRatio = $('chapter-ratio');
+  var summarizeBtn = $('summarize-btn');
+  var chapterViewClose = $('chapter-view-close');
 
   function setStatus(msg, isError) {
     uploadStatus.textContent = msg || '';
     uploadStatus.className = 'status' + (isError ? ' error' : '');
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   async function api(url, options) {
@@ -38,42 +58,82 @@
 
   function renderBook(book) {
     state.bookId = book.id;
+    state.chapters = book.chapters;
+    state.chapterRatios = {};
+    state.chapterSummaries = {};
+    state.currentChapter = -1;
     bookTitle.textContent = book.title;
     bookFilename.textContent = book.filename;
     chapterList.innerHTML = '';
     book.chapters.forEach(function (ch, i) {
       var li = document.createElement('li');
+      li.className = 'chapter-item';
       var idx = document.createElement('span');
       idx.className = 'idx';
       idx.textContent = (i + 1) + '.';
       li.appendChild(idx);
       li.appendChild(document.createTextNode(ch.title));
+      li.addEventListener('click', function () { openChapterView(i); });
       chapterList.appendChild(li);
     });
     bookCard.hidden = false;
     emptyState.hidden = true;
     report.hidden = true;
     qaCard.hidden = true;
+    chapterView.hidden = true;
     answer.className = 'answer';
     questionInput.value = '';
   }
 
+  function updateChapterTitle(index, title) {
+    var items = chapterList.querySelectorAll('li');
+    if (items[index]) {
+      var textNode = items[index].childNodes[1];
+      if (textNode) textNode.nodeValue = title;
+    }
+  }
+
+  function openChapterView(index) {
+    state.currentChapter = index;
+    chapterViewTitle.textContent = state.chapters[index].title;
+    chapterRatio.value = String(state.chapterRatios[index] || 0.25);
+    chapterView.hidden = false;
+    condenseChapter();
+  }
+
+  function condenseChapter() {
+    var index = state.currentChapter;
+    if (index < 0) return;
+    var ratio = parseFloat(chapterRatio.value);
+    state.chapterRatios[index] = ratio;
+    var cached = state.chapterSummaries[index];
+    if (cached && cached.ratio === ratio) {
+      chapterViewContent.innerHTML = '<div class="chapter-summary">' + escapeHtml(cached.summary) + '</div>';
+      return;
+    }
+    chapterViewContent.innerHTML = '<div class="loading">浓缩中...</div>';
+    summarizeBtn.disabled = true;
+    api('/api/books/' + state.bookId + '/chapters/' + index + '/summarize?ratio=' + ratio, { method: 'POST' })
+      .then(function (data) {
+        state.chapterSummaries[index] = { ratio: ratio, summary: data.summary };
+        chapterViewTitle.textContent = data.title;
+        updateChapterTitle(index, data.title);
+        chapterViewContent.innerHTML = '<div class="chapter-summary">' + escapeHtml(data.summary) + '</div>';
+      })
+      .catch(function (err) {
+        chapterViewContent.innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
+      })
+      .finally(function () {
+        summarizeBtn.disabled = false;
+      });
+  }
+
+  chapterRatio.addEventListener('change', condenseChapter);
+  summarizeBtn.addEventListener('click', condenseChapter);
+  chapterViewClose.addEventListener('click', function () { chapterView.hidden = true; });
+
   function renderReport(interp) {
     overview.textContent = interp.overview;
-    chapterSummaries.innerHTML = '';
-    interp.chapters.forEach(function (ch) {
-      var div = document.createElement('div');
-      div.className = 'chapter-summary';
-      var t = document.createElement('div');
-      t.className = 'cs-title';
-      t.textContent = ch.title;
-      var b = document.createElement('div');
-      b.className = 'cs-body';
-      b.textContent = ch.summary || '（暂无摘要）';
-      div.appendChild(t);
-      div.appendChild(b);
-      chapterSummaries.appendChild(div);
-    });
     keyPoints.innerHTML = '';
     interp.key_points.forEach(function (p) {
       var li = document.createElement('li');
@@ -88,16 +148,6 @@
     });
     report.hidden = false;
     qaCard.hidden = false;
-  }
-
-  function updateChapterTitles(chapters) {
-    var items = chapterList.querySelectorAll('li');
-    chapters.forEach(function (ch, i) {
-      if (items[i]) {
-        var textNode = items[i].childNodes[1];
-        if (textNode) textNode.nodeValue = ch.title;
-      }
-    });
   }
 
   uploadBtn.addEventListener('click', function () { fileInput.click(); });
@@ -122,17 +172,17 @@
     if (state.interpreting) return;
     state.interpreting = true;
     interpretBtn.disabled = true;
-    interpretBtn.textContent = '解读中...';
+    interpretBtn.textContent = '生成中...';
     try {
       var interp = await api('/api/books/' + state.bookId + '/interpret', { method: 'POST' });
       renderReport(interp);
-      updateChapterTitles(interp.chapters);
+      interp.chapters.forEach(function (ch, i) { updateChapterTitle(i, ch.title); });
     } catch (err) {
       setStatus(err.message, true);
     } finally {
       state.interpreting = false;
       interpretBtn.disabled = false;
-      interpretBtn.textContent = '开始解读';
+      interpretBtn.textContent = '生成全书概述';
     }
   });
 

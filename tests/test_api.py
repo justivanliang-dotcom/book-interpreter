@@ -78,7 +78,34 @@ def test_interpret_book():
     assert data["overview"]
     assert len(data["key_points"]) == 5
     assert len(data["quotes"]) == 3
-    assert data["chapters"][0]["summary"]
+    # 章节浓缩按需生成，interpret 不填充章节摘要
+    assert data["chapters"][0]["summary"] == ""
+
+
+def test_summarize_chapter():
+    book = _upload().json()
+    resp = client.post(f"/api/books/{book['id']}/chapters/0/summarize?ratio=0.5")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["title"] == "第一章"
+    assert data["summary"]
+
+
+def test_summarize_chapter_not_found():
+    book = _upload().json()
+    resp = client.post(f"/api/books/{book['id']}/chapters/99/summarize")
+    assert resp.status_code == 404
+
+
+def test_summarize_chapter_llm_error():
+    app.dependency_overrides[get_llm] = lambda: FailingLLM()
+    try:
+        book = _upload().json()
+        resp = client.post(f"/api/books/{book['id']}/chapters/0/summarize")
+        assert resp.status_code == 502
+        assert "LLM_API_KEY" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides[get_llm] = lambda: FakeLLM()
 
 
 def test_interpret_book_not_found():

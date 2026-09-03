@@ -100,6 +100,48 @@ body {
 }
 #chapter-list li:last-child { border-bottom: none; }
 #chapter-list .idx { color: var(--accent2); font-weight: 700; margin-right: 0.4rem; }
+#chapter-list li.chapter-item {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+#chapter-list li.chapter-item:hover { background: rgba(47,107,79,0.08); }
+
+.chapter-view-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+.chapter-view h2 { font-family: var(--font-head); font-size: 1.25rem; color: var(--accent); }
+.ratio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  padding: 0.7rem 0.9rem;
+  background: rgba(47,107,79,0.06);
+  border-radius: 10px;
+}
+.ratio-row label { font-size: 0.85rem; color: var(--muted); }
+.ratio-row select {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 0.85rem;
+  background: #fff;
+}
+.btn.primary.small { width: auto; padding: 0.4rem 0.9rem; font-size: 0.82rem; }
+.chapter-view-content { color: var(--ink); }
+.chapter-view-content .chapter-summary {
+  white-space: pre-wrap;
+  line-height: 1.9;
+  font-size: 0.95rem;
+}
+.chapter-view-content .loading { color: var(--muted); text-align: center; padding: 2rem 0; }
+.chapter-view-content .error { color: #b3452f; }
 
 .empty { text-align: center; color: var(--muted); padding: 3rem 1rem; }
 
