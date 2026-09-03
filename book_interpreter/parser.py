@@ -83,8 +83,42 @@ def _extract_title(after: str) -> str:
     return line.strip()
 
 
+def _strip_toc(text: str) -> str:
+    """检测并移除文本开头的目录页。
+
+    目录页特征：开头连续多个章节标记之间没有正文内容
+    （允许夹带书名/作者等短行）。返回移除目录后的文本。
+    """
+    markers: list[tuple[int, int]] = []
+    for pattern in (_INLINE_CHAPTER, _INLINE_FRONT, _INLINE_BACK, _INLINE_THANKS, _INLINE_EN):
+        for m in pattern.finditer(text):
+            markers.append((m.start(), m.end()))
+    if not markers:
+        return text
+    markers.sort(key=lambda x: x[0])
+
+    def _is_prefix(s: str) -> bool:
+        # 目录行：短标题，不含句号/感叹号（标题可含问号，正文句子以句号/感叹号结尾）
+        return len(s) <= 50 and not any(c in s for c in "。！；")
+
+    count = 0
+    prev_end = 0
+    toc_end = 0
+    for start, end in markers:
+        between = text[prev_end:start].strip()
+        if between and not _is_prefix(between):
+            break
+        count += 1
+        prev_end = end
+        toc_end = end
+    if count >= 3:
+        return text[toc_end:].lstrip("\r\n ")
+    return text
+
+
 def _parse_plain_text(text: str) -> list[Chapter]:
     """按章节标记切分纯文本，标记可内嵌在段落中间。"""
+    text = _strip_toc(text)
     markers: list[tuple[int, int, str]] = []
     for pattern in (_INLINE_CHAPTER, _INLINE_FRONT, _INLINE_BACK, _INLINE_THANKS, _INLINE_EN):
         for m in pattern.finditer(text):
