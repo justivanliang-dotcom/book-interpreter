@@ -146,12 +146,18 @@ def summarize_chapter_with_sources(
     return summary_text, sentences
 
 
-def explain_chapter_plain(llm: LLMClient, title: str, content: str) -> str:
+def explain_chapter_plain(
+    llm: LLMClient, title: str, content: str, target_words: int | None = None
+) -> str:
     """用初中生能懂的词汇对章节内容做通俗讲解。
 
-    讲解目标字数按原文长度自适应（100~500 字），与浓缩摘要互补。
+    讲解目标字数默认按内容长度自适应（100~500 字）；
+    传入 target_words 时以该值为准（下限 100，不超过内容长度），
+    与浓缩摘要互补。
     """
-    target_words = min(500, max(100, len(content)))
+    if target_words is None:
+        target_words = min(500, max(100, len(content)))
+    target_words = max(100, min(target_words, max(100, len(content))))
     lower = max(50, int(target_words * 0.8))
     upper = int(target_words * 1.2)
     system = "你是一位擅长把复杂道理讲得通俗易懂的老师，只用初中生能懂的词汇讲解书籍内容。"
@@ -164,7 +170,7 @@ def explain_chapter_plain(llm: LLMClient, title: str, content: str) -> str:
         f"4. 总字数约 {target_words} 字（允许在 {lower}~{upper} 字之间）。\n\n"
         f"章节标题：{title}\n\n章节内容：\n{_truncate(content, 6000)}"
     )
-    return llm.complete(prompt, system=system, max_tokens=min(target_words * 2, 8000))
+    return llm.complete(prompt, system=system, max_tokens=min(target_words * 3, 8000))
 
 
 def explain_chapter_by_ratio(
@@ -172,11 +178,12 @@ def explain_chapter_by_ratio(
 ) -> str:
     """先按比例浓缩章节，再用大白话讲解浓缩结果。
 
-    讲解对象是浓缩后的内容：比例越小讲解越精简，
+    讲解篇幅随比例单调递增（约 170~800 字）：比例越大讲解越详细，
     ratio 为 1.0 时浓缩直接返回原文，讲解全文。
     """
     condensed = summarize_chapter(llm, title, content, ratio)
-    return explain_chapter_plain(llm, title, condensed)
+    target_words = int(100 + 700 * ratio)
+    return explain_chapter_plain(llm, title, condensed, target_words=target_words)
 
 
 def extract_chapter_titles(llm: LLMClient, book: Book) -> None:

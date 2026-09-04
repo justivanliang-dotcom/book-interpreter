@@ -159,6 +159,33 @@ def test_explain_chapter_by_ratio_full_no_extra_condense(fake_llm):
     assert text == "这一章用大白话讲：先把问题拆小，再一步步解决，就像搭积木一样。"
 
 
+def test_explain_chapter_plain_explicit_target_words(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
+    explain_chapter_plain(fake_llm, chapter.title, chapter.content, target_words=800)
+    assert "约 800 字" in fake_llm.calls[-1]
+    assert "640~960" in fake_llm.calls[-1]
+
+
+class LongCondenseLLM(FakeLLM):
+    """浓缩输出足够长，避免讲解目标字数被内容长度截断。"""
+
+    def complete(self, prompt, system="", max_tokens=2000):
+        if "大白话" in prompt:
+            return super().complete(prompt, system, max_tokens)
+        return "浓缩内容。" * 200  # 1000 字
+
+
+def test_explain_chapter_by_ratio_target_grows_with_ratio():
+    llm = LongCondenseLLM()
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
+    # 75% → 约 625 字
+    explain_chapter_by_ratio(llm, chapter.title, chapter.content, 0.75)
+    assert "约 625 字" in llm.calls[-1]
+    # 100% → 约 800 字，篇幅随比例单调递增
+    explain_chapter_by_ratio(llm, chapter.title, chapter.content, 1.0)
+    assert "约 800 字" in llm.calls[-1]
+
+
 def test_summarize_chapter_floor_100(fake_llm):
     chapter = Chapter(title="短章", content="内容" * 100, order=0)  # 200字
     summarize_chapter(fake_llm, chapter.title, chapter.content, 0.1)
