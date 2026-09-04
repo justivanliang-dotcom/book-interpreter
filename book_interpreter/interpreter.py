@@ -167,6 +167,18 @@ def explain_chapter_plain(llm: LLMClient, title: str, content: str) -> str:
     return llm.complete(prompt, system=system, max_tokens=min(target_words * 2, 8000))
 
 
+def explain_chapter_by_ratio(
+    llm: LLMClient, title: str, content: str, ratio: float = 0.25
+) -> str:
+    """先按比例浓缩章节，再用大白话讲解浓缩结果。
+
+    讲解对象是浓缩后的内容：比例越小讲解越精简，
+    ratio 为 1.0 时浓缩直接返回原文，讲解全文。
+    """
+    condensed = summarize_chapter(llm, title, content, ratio)
+    return explain_chapter_plain(llm, title, condensed)
+
+
 def extract_chapter_titles(llm: LLMClient, book: Book) -> None:
     """让 LLM 批量提取各章节准确标题，避免标题混入正文。
 

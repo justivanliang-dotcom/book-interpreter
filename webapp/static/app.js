@@ -161,7 +161,9 @@
       summaryBox.innerHTML = '<div class="hint">点击「浓缩本章」生成浓缩内容</div>';
     }
     var plainBox = li.querySelector('.chapter-plain');
-    var cachedPlain = state.chapterPlain[index];
+    var ratio = parseFloat(li.querySelector('.chapter-ratio').value);
+    var cacheKey = index + ':' + ratio;
+    var cachedPlain = state.chapterPlain[cacheKey];
     if (cachedPlain) {
       renderPlain(plainBox, cachedPlain);
     } else {
@@ -255,9 +257,12 @@
   function explainPlain(index) {
     var li = chapterList.querySelector('li[data-index="' + index + '"]');
     if (!li) return;
+    var select = li.querySelector('.chapter-ratio');
+    var ratio = parseFloat(select.value);
     var btn = li.querySelector('.plain-btn');
     var plainBox = li.querySelector('.chapter-plain');
-    var cached = state.chapterPlain[index];
+    var cacheKey = index + ':' + ratio;
+    var cached = state.chapterPlain[cacheKey];
     if (cached) {
       renderPlain(plainBox, cached);
       return;
@@ -265,9 +270,9 @@
     plainBox.hidden = false;
     plainBox.innerHTML = '<div class="loading">讲解中...</div>';
     btn.disabled = true;
-    api('/api/books/' + state.bookId + '/chapters/' + index + '/plain', { method: 'POST' })
+    api('/api/books/' + state.bookId + '/chapters/' + index + '/plain?ratio=' + ratio, { method: 'POST' })
       .then(function (data) {
-        state.chapterPlain[index] = data.text;
+        state.chapterPlain[cacheKey] = data.text;
         var head = li.querySelector('.chapter-head');
         if (head && head.textContent !== data.title) head.textContent = data.title;
         renderPlain(plainBox, data.text);

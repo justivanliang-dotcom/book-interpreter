@@ -5,6 +5,7 @@ from book_interpreter.interpreter import (
     _parse_summary_with_sources,
     _retrieve_context,
     _split_paragraphs,
+    explain_chapter_by_ratio,
     explain_chapter_plain,
     extract_chapter_titles,
     generate_overview,
@@ -136,6 +137,26 @@ def test_explain_chapter_plain_target_words(fake_llm):
     # 短章 → 目标 100 字下限
     explain_chapter_plain(fake_llm, "短章", "内容" * 20)
     assert "约 100 字" in fake_llm.calls[-1]
+
+
+def test_explain_chapter_by_ratio_condenses_first(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
+    text = explain_chapter_by_ratio(fake_llm, chapter.title, chapter.content, 0.1)
+    # 先按比例浓缩，再对浓缩结果讲解，共两次调用
+    assert len(fake_llm.calls) == 2
+    assert "浓缩" in fake_llm.calls[0]
+    assert "大白话" in fake_llm.calls[1]
+    assert text == "这一章用大白话讲：先把问题拆小，再一步步解决，就像搭积木一样。"
+
+
+def test_explain_chapter_by_ratio_full_no_extra_condense(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
+    text = explain_chapter_by_ratio(fake_llm, chapter.title, chapter.content, 1.0)
+    # 100% 时浓缩直接返回原文，不额外调用 LLM，讲解对象是全文
+    assert len(fake_llm.calls) == 1
+    assert "大白话" in fake_llm.calls[0]
+    assert "内容内容" in fake_llm.calls[0]
+    assert text == "这一章用大白话讲：先把问题拆小，再一步步解决，就像搭积木一样。"
 
 
 def test_summarize_chapter_floor_100(fake_llm):

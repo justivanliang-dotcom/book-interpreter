@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from book_interpreter.exporter import export
 from book_interpreter.interpreter import (
-    explain_chapter_plain,
+    explain_chapter_by_ratio,
     extract_chapter_titles,
     generate_overview,
     summarize_chapter_with_sources,
@@ -175,9 +175,10 @@ def summarize_chapter_api(
 def explain_chapter_api(
     book_id: str,
     chapter_index: int,
+    ratio: float = Query(0.25, ge=0.05, le=1.0),
     llm: LLMClient = Depends(get_llm),
 ) -> PlainOut:
-    """用初中生词汇对指定章节做通俗易懂的讲解。"""
+    """按浓缩比例先浓缩章节，再用初中生词汇对浓缩结果做通俗易懂的讲解。"""
     record = _get_record(book_id)
     book = record["book"]
     if chapter_index < 0 or chapter_index >= len(book.chapters):
@@ -189,7 +190,7 @@ def explain_chapter_api(
         extract_chapter_titles(llm, book)
         record["titles_extracted"] = True
     try:
-        text = explain_chapter_plain(llm, chapter.title, chapter.content)
+        text = explain_chapter_by_ratio(llm, chapter.title, chapter.content, ratio)
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
     chapter.plain = text

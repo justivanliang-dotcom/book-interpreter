@@ -16,6 +16,18 @@ class FailingLLM(FakeLLM):
         raise LLMError("未配置 LLM_API_KEY")
 
 
+class CountingLLM(FakeLLM):
+    """记录每次 LLM 调用的提示词，用于验证调用顺序。"""
+
+    def __init__(self):
+        super().__init__()
+        self.prompts = []
+
+    def complete(self, prompt, system="", max_tokens=2000):
+        self.prompts.append(prompt)
+        return super().complete(prompt, system, max_tokens)
+
+
 @pytest.fixture(autouse=True)
 def clear_books():
     _books.clear()
@@ -143,6 +155,40 @@ def test_explain_plain_empty_chapter():
     resp = client.post(f"/api/books/{book['id']}/chapters/1/plain")
     assert resp.status_code == 200
     assert resp.json()["text"] == "（本章无内容）"
+
+
+def test_explain_plain_ratio_condenses_first():
+    counting = CountingLLM()
+    app.dependency_overrides[get_llm] = lambda: counting
+    try:
+        content = f"# 测试书\n\n## 第一章\n{'内容' * 500}\n\n## 第二章\n{'内容' * 500}"
+        book = _upload(content=content).json()
+        resp = client.post(f"/api/books/{book['id']}/chapters/0/plain?ratio=0.1")
+        assert resp.status_code == 200
+        assert resp.json()["text"]
+        # 小比例：先浓缩再讲解，共两次 LLM 调用
+        assert len(counting.prompts) == 2
+        assert "浓缩" in counting.prompts[0]
+        assert "大白话" in counting.prompts[1]
+    finally:
+        app.dependency_overrides[get_llm] = lambda: FakeLLM()
+
+
+def test_explain_plain_ratio_100_skips_condense():
+    counting = CountingLLM()
+    app.dependency_overrides[get_llm] = lambda: counting
+    try:
+        content = f"# 测试书\n\n## 第一章\n{'内容' * 500}\n\n## 第二章\n{'内容' * 500}"
+        book = _upload(content=content).json()
+        resp = client.post(f"/api/books/{book['id']}/chapters/0/plain?ratio=1.0")
+        assert resp.status_code == 200
+        assert resp.json()["text"]
+        # 100%：浓缩直接返回原文，仅一次讲解调用，且讲解 prompt 含全文
+        assert len(counting.prompts) == 1
+        assert "大白话" in counting.prompts[0]
+        assert "内容内容" in counting.prompts[0]
+    finally:
+        app.dependency_overrides[get_llm] = lambda: FakeLLM()
 
 
 def test_explain_plain_llm_error():
