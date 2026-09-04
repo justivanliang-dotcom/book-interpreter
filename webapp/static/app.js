@@ -11,6 +11,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var fileInput = $('file-input');
   var uploadBtn = $('upload-btn');
+  var uploadCard = $('upload-card');
   var uploadStatus = $('upload-status');
   var bookCard = $('book-card');
   var bookTitle = $('book-title');
@@ -316,22 +317,45 @@
     qaCard.hidden = false;
   }
 
-  uploadBtn.addEventListener('click', function () { fileInput.click(); });
-
-  fileInput.addEventListener('change', async function () {
-    var file = fileInput.files[0];
-    if (!file) return;
+  function uploadFile(file) {
     setStatus('上传解析中...');
     var form = new FormData();
     form.append('file', file);
-    try {
-      var book = await api('/api/books', { method: 'POST', body: form });
-      renderBook(book);
-      setStatus('解析完成，共 ' + book.chapters.length + ' 个章节');
-    } catch (err) {
-      setStatus(err.message, true);
-    }
+    api('/api/books', { method: 'POST', body: form })
+      .then(function (book) {
+        renderBook(book);
+        setStatus('解析完成，共 ' + book.chapters.length + ' 个章节');
+      })
+      .catch(function (err) {
+        setStatus(err.message, true);
+      });
+  }
+
+  uploadBtn.addEventListener('click', function () { fileInput.click(); });
+
+  fileInput.addEventListener('change', function () {
+    var file = fileInput.files[0];
+    if (!file) return;
+    uploadFile(file);
     fileInput.value = '';
+  });
+
+  ['dragenter', 'dragover'].forEach(function (evt) {
+    uploadCard.addEventListener(evt, function (e) {
+      e.preventDefault();
+      uploadCard.classList.add('drag-over');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function (evt) {
+    uploadCard.addEventListener(evt, function (e) {
+      e.preventDefault();
+      uploadCard.classList.remove('drag-over');
+    });
+  });
+  uploadCard.addEventListener('drop', function (e) {
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    uploadFile(file);
   });
 
   interpretBtn.addEventListener('click', async function () {

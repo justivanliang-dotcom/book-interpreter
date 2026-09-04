@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from book_interpreter.llm import LLMError
-from tests.conftest import FakeLLM
+from tests.conftest import FakeLLM, simple_pdf
 from webapp.main import _books, app, get_llm
 
 client = TestClient(app)
@@ -59,12 +59,31 @@ def test_upload_book():
     assert data["chapters"][0]["title"] == "第一章"
 
 
-def test_upload_non_utf8():
+def test_upload_unsupported_extension():
     resp = client.post(
         "/api/books",
-        files={"file": ("book.md", b"\xff\xfe\x00 invalid", "text/markdown")},
+        files={"file": ("book.docx", b"hello", "application/octet-stream")},
     )
     assert resp.status_code == 400
+    assert "不支持的格式" in resp.json()["detail"]
+
+
+def test_upload_txt_gbk_encoding():
+    resp = client.post(
+        "/api/books",
+        files={"file": ("book.txt", "第一章 标题\n正文内容。".encode("gb18030"), "text/plain")},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["chapters"][0]["title"] == "第一章 标题"
+
+
+def test_upload_pdf():
+    resp = client.post(
+        "/api/books",
+        files={"file": ("book.pdf", simple_pdf("Chapter 1 Test Content " * 4), "application/pdf")},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["filename"] == "book.pdf"
 
 
 def test_raw_returns_original_text():

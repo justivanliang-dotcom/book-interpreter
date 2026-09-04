@@ -16,11 +16,11 @@
 
 <main class="layout">
   <aside class="sidebar">
-    <div class="card upload-card">
-      <input type="file" id="file-input" accept=".txt,.md" hidden>
+    <div class="card upload-card" id="upload-card">
+      <input type="file" id="file-input" accept=".txt,.md,.pdf,.epub,.mobi,.azw3" hidden>
       <button class="btn primary" id="upload-btn">上传书籍</button>
       <button class="btn accent" id="interpret-btn" disabled>生成全书概述</button>
-      <p class="hint">支持 TXT / Markdown</p>
+      <p class="hint">支持 TXT / Markdown / PDF / EPUB / MOBI / AZW3，也可直接拖拽文件到此处</p>
       <p class="status" id="upload-status"></p>
     </div>
 
@@ -34,7 +34,7 @@
 
   <section class="content">
     <div class="card empty" id="empty-state">
-      <p>上传一本 TXT/Markdown 书籍，开始生成解读报告</p>
+      <p>上传或拖入一本 TXT / Markdown / PDF / EPUB / MOBI / AZW3 书籍，开始生成解读报告</p>
     </div>
 
     <div class="card report" id="report" hidden>

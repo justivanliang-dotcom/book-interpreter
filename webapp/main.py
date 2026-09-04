@@ -20,6 +20,7 @@ from book_interpreter.interpreter import (
     summarize_chapter_with_sources,
 )
 from book_interpreter.llm import LLMClient, LLMError
+from book_interpreter.loaders import SUPPORTED_EXTENSIONS, UnsupportedFormatError, extract_text
 from book_interpreter.parser import parse_book
 from book_interpreter.qa import answer_question
 
@@ -90,10 +91,16 @@ def _get_record(book_id: str) -> dict[str, Any]:
 @app.post("/api/books", response_model=BookOut)
 async def upload_book(file: UploadFile = File(...)) -> BookOut:
     raw = await file.read()
+    ext = Path(file.filename).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的格式：{ext or '未知'}，支持 TXT / Markdown / PDF / EPUB / MOBI / AZW3",
+        )
     try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="仅支持 UTF-8 编码的文本文件")
+        text = extract_text(file.filename, raw)
+    except UnsupportedFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     book = parse_book(text)
     if book.title == "未命名书籍":
         book.title = Path(file.filename).stem
