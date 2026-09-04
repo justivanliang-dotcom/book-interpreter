@@ -134,3 +134,57 @@ def test_parse_plain_text_keeps_short_chapters_without_toc():
     assert "这是第一章内容" in book.chapters[0].content
     assert "这是第二章内容" in book.chapters[1].content
     assert "这是第三章内容" in book.chapters[2].content
+
+
+def test_parse_chapters_without_prefix_character():
+    # 《马斯克原理》式格式：章节标记无"第"字（"一章 xxx"、"一部分 xxx"）
+    text = (
+        "一部分 追求目标\n"
+        "一章 明确人生目标\n"
+        "做有用的事，为未来而战。\n"
+        "二章 像物理学家一样思考\n"
+        "执着探寻真理。\n"
+    )
+    book = parse_book(text, title="测试书")
+    titles = [c.title for c in book.chapters]
+    assert titles == ["一部分 追求目标", "一章 明确人生目标", "二章 像物理学家一样思考"]
+    assert "做有用的事" in book.chapters[1].content
+    assert "执着探寻真理" in book.chapters[2].content
+
+
+def test_parse_solo_front_and_back_sections():
+    # "序"、"注释"、"致谢" 单独成行也应识别为章节，且不重复
+    text = (
+        "关于本书的说明\n"
+        "本书内容说明。\n"
+        "序\n"
+        "这是序的内容。\n"
+        "一章 明确人生目标\n"
+        "正文内容。\n"
+        "注释\n"
+        "18. 引用数据。\n"
+        "致谢\n"
+        "感谢所有人。\n"
+    )
+    book = parse_book(text, title="测试书")
+    titles = [c.title for c in book.chapters]
+    assert titles == ["关于本书的说明", "序", "一章 明确人生目标", "注释", "致谢"]
+    assert "引用数据" in book.chapters[titles.index("注释")].content
+    assert titles.count("致谢") == 1
+
+
+def test_line_chapter_marker_not_matching_body_text():
+    # 正文中的"这一章讨论"、"两个部分"不应被误识别为章节标记
+    text = (
+        "这一章讨论人工智能的边界。\n"
+        "全书分为两个部分。\n"
+        "一章 真正的章节标题\n"
+        "内容。\n"
+    )
+    book = parse_book(text, title="测试书")
+    # 正文前缀成为"前言"，真正的章节标题是第二个章节
+    assert len(book.chapters) == 2
+    assert book.chapters[0].title == "前言"
+    assert "这一章讨论" in book.chapters[0].content
+    assert "全书分为两个部分" in book.chapters[0].content
+    assert book.chapters[1].title == "一章 真正的章节标题"

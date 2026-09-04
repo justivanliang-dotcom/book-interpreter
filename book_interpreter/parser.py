@@ -15,12 +15,28 @@ from .models import Book, Chapter
 # 章节/前言/结语标记（可出现在行首或段落中间）
 # 第X章 后必须跟空格，以区分"第1章 标题"与"第1章提到的"这类引用
 _INLINE_CHAPTER = re.compile(
-    r"第\s*[0-9一二三四五六七八九十百千万零]+\s*[章节回部卷篇]\s+"
+    r"第\s*[0-9一二三四五六七八九十百千万零]+\s*(?:部分|章节|回|部|卷|篇|章|节)\s+"
 )
 _INLINE_FRONT = re.compile(r"(?:自序|序言|前言|引言|绪论|导言|推荐序|译者序)\s*[：:]")
 _INLINE_BACK = re.compile(r"(?:结语|结束语|后记|附录|跋)\s*[：:]")
 _INLINE_THANKS = re.compile(r"(?:^|[。！？\n\r])致谢")
 _INLINE_EN = re.compile(r"(?:Chapter|Part)\s+[IVX\d]+\s+", re.IGNORECASE)
+
+# 行首章节标记：无"第"字的章节（如"一章 xxx"、"一部分 xxx"）或整行单独出现的章节名
+_LINE_CHAPTER_NO_PREFIX = re.compile(
+    r"^[ \t]*[0-9一二三四五六七八九十百千万零]+\s*(?:部分|章节|回|部|卷|篇|章|节)\s+",
+    re.MULTILINE,
+)
+_LINE_FRONT_SOLO = re.compile(
+    r"^[ \t]*(?:序|自序|序言|前言|推荐序|译者序|关于本书的说明)[ \t]*$",
+    re.MULTILINE,
+)
+_LINE_BACK_SOLO = re.compile(
+    r"^[ \t]*(?:结语|结束语|后记|跋|附录|注释|致谢|参考文献)[ \t]*$",
+    re.MULTILINE,
+)
+
+_LINE_MARKERS = (_LINE_CHAPTER_NO_PREFIX, _LINE_FRONT_SOLO, _LINE_BACK_SOLO)
 
 _MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s*(.*)$")
 
@@ -39,7 +55,14 @@ def _is_markdown(text: str) -> bool:
 
 def starts_with_marker(line: str) -> bool:
     """判断行首是否为章节标记（第X章、自序、结语等）。"""
-    for pattern in (_INLINE_CHAPTER, _INLINE_FRONT, _INLINE_BACK, _INLINE_THANKS, _INLINE_EN):
+    for pattern in (
+        _INLINE_CHAPTER,
+        _INLINE_FRONT,
+        _INLINE_BACK,
+        _INLINE_THANKS,
+        _INLINE_EN,
+        *_LINE_MARKERS,
+    ):
         if pattern.match(line):
             return True
     return False
@@ -83,19 +106,40 @@ def _extract_title(after: str) -> str:
     return line.strip()
 
 
+def _find_markers(text: str) -> list[tuple[int, int, str]]:
+    """收集所有章节标记，按位置排序并去重（不同模式可能匹配同一位置或重叠）。"""
+    markers: list[tuple[int, int, str]] = []
+    for pattern in (
+        _INLINE_CHAPTER,
+        _INLINE_FRONT,
+        _INLINE_BACK,
+        _INLINE_THANKS,
+        _INLINE_EN,
+        *_LINE_MARKERS,
+    ):
+        for m in pattern.finditer(text):
+            markers.append((m.start(), m.end(), m.group(0)))
+    markers.sort(key=lambda x: (x[0], x[1]))
+    unique: list[tuple[int, int, str]] = []
+    for m in markers:
+        if unique and m[0] < unique[-1][1]:
+            # 与上一个标记区间重叠（如"致谢"被内嵌与行首模式同时匹配），保留较长的
+            if m[1] > unique[-1][1]:
+                unique[-1] = m
+        else:
+            unique.append(m)
+    return unique
+
+
 def _strip_toc(text: str) -> str:
     """检测并移除文本开头的目录页。
 
     目录页特征：开头连续多个章节标记之间没有正文内容
     （允许夹带书名/作者等短行）。返回移除目录后的文本。
     """
-    markers: list[tuple[int, int]] = []
-    for pattern in (_INLINE_CHAPTER, _INLINE_FRONT, _INLINE_BACK, _INLINE_THANKS, _INLINE_EN):
-        for m in pattern.finditer(text):
-            markers.append((m.start(), m.end()))
+    markers = [(s, e) for s, e, _ in _find_markers(text)]
     if not markers:
         return text
-    markers.sort(key=lambda x: x[0])
 
     def _is_prefix(s: str) -> bool:
         # 目录行：短标题，不含句号/感叹号（标题可含问号，正文句子以句号/感叹号结尾）
@@ -119,16 +163,11 @@ def _strip_toc(text: str) -> str:
 def _parse_plain_text(text: str) -> list[Chapter]:
     """按章节标记切分纯文本，标记可内嵌在段落中间。"""
     text = _strip_toc(text)
-    markers: list[tuple[int, int, str]] = []
-    for pattern in (_INLINE_CHAPTER, _INLINE_FRONT, _INLINE_BACK, _INLINE_THANKS, _INLINE_EN):
-        for m in pattern.finditer(text):
-            markers.append((m.start(), m.end(), m.group(0)))
+    markers = _find_markers(text)
     if not markers:
         return [Chapter(title="前言", content=text.strip(), order=0)]
 
-    markers.sort(key=lambda x: x[0])
     chapters: list[Chapter] = []
-
     prefix = text[: markers[0][0]].strip()
     if prefix:
         chapters.append(Chapter(title="前言", content=prefix, order=0))
