@@ -1,6 +1,6 @@
 """解析器测试。"""
 
-from book_interpreter.parser import parse_book, read_book_file
+from book_interpreter.parser import _is_markdown, parse_book, read_book_file
 
 
 def test_read_book_file_uses_content_title(tmp_path):
@@ -188,3 +188,99 @@ def test_line_chapter_marker_not_matching_body_text():
     assert "这一章讨论" in book.chapters[0].content
     assert "全书分为两个部分" in book.chapters[0].content
     assert book.chapters[1].title == "一章 真正的章节标题"
+
+
+def test_is_markdown_not_fooled_by_hash_reference():
+    # 书末注释行 "#18,\"Lex Fridman...\"" 以井号开头，不应误判为 Markdown
+    text = (
+        "马斯克原理\n"
+        "第一章\n"
+        "做有用的事。\n"
+        '#18,"Lex Fridman,April 12,2019,YouTube video,32:44. [602]Musk(@elonmusk),Xaccount.\n'
+    )
+    assert _is_markdown(text) is False
+
+
+def test_is_markdown_requires_two_headings():
+    # 单个井号标题不算 Markdown（避免误判）；两个才算
+    assert _is_markdown("# 单个标题\n正文。\n") is False
+    assert _is_markdown("# 标题一\n正文。\n## 标题二\n内容。\n") is True
+
+
+def test_strip_toc_skips_front_matter():
+    # 版权页（含句号）+ "目 录" + 目录条目：目录应被移除，正文标题保留
+    text = (
+        "马斯克原理\n"
+        "[美]埃里克·乔根森 著。版权所有。\n"
+        "目 录\n"
+        "CONTENTS\n"
+        "序 IX\n"
+        "第一章 缘起 003\n"
+        "第二章 发展 018\n"
+        "第三章 结局 033\n"
+        "第一章 缘起\n"
+        "这是正文。\n"
+        "第二章 发展\n"
+        "这是正文。\n"
+    )
+    book = parse_book(text, title="测试书")
+    titles = [c.title for c in book.chapters]
+    assert titles[0] == "前言"
+    assert "序 IX" not in book.chapters[0].content
+    assert "第一章 缘起" in titles
+    assert "这是正文" in book.chapters[titles.index("第一章 缘起")].content
+
+
+def test_parse_order_with_author():
+    # "序 纳瓦尔·拉维坎特"（章节名+作者名）应识别为"序"章节
+    text = (
+        "关于本书的重要说明\n"
+        "本书内容说明。\n"
+        "序 纳瓦尔·拉维坎特\n"
+        "这是序的正文。\n"
+        "第一章 明确人生目标\n"
+        "做有用的事。\n"
+    )
+    book = parse_book(text, title="测试书")
+    titles = [c.title for c in book.chapters]
+    assert "序 纳瓦尔·拉维坎特" in titles
+    assert "这是序的正文" in book.chapters[titles.index("序 纳瓦尔·拉维坎特")].content
+
+
+def test_parse_musk_style_book():
+    # 《马斯克原理》式完整结构：版权页 + 目录 + 序 + 一章 + 注释 + 致谢
+    text = (
+        "The Book of ELON\n"
+        "马斯克原理\n"
+        "[美]埃里克·乔根森 著。版权所有。\n"
+        "目 录\n"
+        "关于本书的重要说明 VII\n"
+        "序 IX\n"
+        "第一部分 追求目标 003\n"
+        "第一章 明确人生目标 003\n"
+        "第二章 像物理学家一样思考 018\n"
+        "注释 250\n"
+        "致谢 254\n"
+        "关于本书的重要说明\n"
+        "本书用马斯克的原话呈现其思想精华。\n"
+        "序 纳瓦尔·拉维坎特\n"
+        "这是序的正文。\n"
+        "第一部分 追求目标\n"
+        "第一章 明确人生目标\n"
+        "做有用的事，为未来而战。\n"
+        "第二章 像物理学家一样思考\n"
+        "执着探寻真理。\n"
+        "#18,\"Lex Fridman,April 12,2019,YouTube video,32:44.\n"
+        "[602]Musk(@elonmusk),Xaccount.\n"
+        "致谢\n"
+        "感谢所有支持者。\n"
+    )
+    book = parse_book(text)
+    assert book.title == "马斯克原理"
+    titles = [c.title for c in book.chapters]
+    assert titles[0] == "关于本书的重要说明"
+    assert "序 纳瓦尔·拉维坎特" in titles
+    assert "第一章 明确人生目标" in titles
+    assert "致谢" in titles
+    assert "做有用的事" in book.chapters[titles.index("第一章 明确人生目标")].content
+    assert "#18," in book.chapters[titles.index("致谢") - 1].content
