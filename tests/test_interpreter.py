@@ -1,10 +1,13 @@
 """解读器测试。"""
 
+import re
+
 from book_interpreter.interpreter import (
     _parse_list,
     _parse_summary_with_sources,
     _retrieve_context,
     _split_paragraphs,
+    count_chars,
     explain_chapter_by_ratio,
     explain_chapter_plain,
     extract_chapter_titles,
@@ -12,6 +15,7 @@ from book_interpreter.interpreter import (
     interpret_book,
     summarize_chapter,
     summarize_chapter_with_sources,
+    summary_target_words,
 )
 from book_interpreter.models import Book, Chapter
 from tests.conftest import FakeLLM
@@ -107,10 +111,62 @@ def test_summarize_chapter_by_ratio(fake_llm):
     # 10% → 约200字
     summarize_chapter(fake_llm, chapter.title, chapter.content, 0.1)
     assert "约 200 字" in fake_llm.calls[-1]
-    assert "160~240" in fake_llm.calls[-1]
+    assert "180~220" in fake_llm.calls[-1]
     # 50% → 约1000字
     summarize_chapter(fake_llm, chapter.title, chapter.content, 0.5)
     assert "约 1000 字" in fake_llm.calls[-1]
+
+
+def test_count_chars_ignores_whitespace():
+    assert count_chars("hello world\n") == 10
+    assert count_chars("内容 内容\n\n") == 4
+    assert count_chars("") == 0
+
+
+def test_summary_target_words():
+    # 可见字数口径：2000 字 → 75% → 1500
+    assert summary_target_words("内容" * 1000, 0.75) == 1500
+    # 100% → 原文长度
+    assert summary_target_words("内容" * 1000, 1.0) == 2000
+    # 短内容按原文长度返回，不强行抬到 100 字下限
+    assert summary_target_words("短", 0.1) == 1
+
+
+class ShortThenLongLLM(FakeLLM):
+    """第一次浓缩输出过短，重试时输出恰好达标的文本。"""
+
+    def __init__(self):
+        super().__init__()
+        self.condense_calls = 0
+
+    def complete(self, prompt, system="", max_tokens=2000):
+        self.calls.append(prompt)
+        if "浓缩" in prompt and "【句】" not in prompt:
+            self.condense_calls += 1
+            m = re.search(r"浓缩结果约 (\d+) 字", prompt)
+            n = int(m.group(1)) if m else 100
+            if self.condense_calls == 1:
+                return "太短" * 10  # 20 字，远低于目标
+            return "内容" * (n // 2)  # 恰好达标
+        return super().complete(prompt, system, max_tokens)
+
+
+def test_summarize_chapter_retries_when_too_short():
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
+    llm = ShortThenLongLLM()
+    result = summarize_chapter(llm, chapter.title, chapter.content, 0.5)  # 目标1000字
+    assert llm.condense_calls == 2  # 触发一次重试
+    assert count_chars(result) == 1000  # 重试后字数达标
+    assert "上次输出" in llm.calls[-1]  # 重试 prompt 带字数反馈
+
+
+def test_summarize_chapter_no_retry_when_on_target(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
+    calls_before = len(fake_llm.calls)
+    result = summarize_chapter(fake_llm, chapter.title, chapter.content, 0.5)
+    # FakeLLM 返回恰好达标的文本，不应触发重试
+    assert len(fake_llm.calls) == calls_before + 1
+    assert count_chars(result) == 1000
 
 
 def test_summarize_chapter_full_returns_original(fake_llm):
@@ -245,10 +301,21 @@ def test_summarize_chapter_with_sources():
     assert sentences[1]["source"] == "原文句二。"
 
 
-def test_summarize_chapter_with_sources_fallback(fake_llm):
+class NoMarkupLLM(FakeLLM):
+    """浓缩输出不使用【句】【源】标记，触发 fallback 分支。"""
+
+    def complete(self, prompt, system="", max_tokens=2000):
+        if "浓缩" in prompt and "【句】" in prompt:
+            return "没有使用标记格式的纯文本摘要。"
+        return super().complete(prompt, system, max_tokens)
+
+
+def test_summarize_chapter_with_sources_fallback():
     chapter = Chapter(title="测试章", content="内容" * 1000, order=0)
-    summary, sentences = summarize_chapter_with_sources(fake_llm, chapter.title, chapter.content, 0.1)
-    # FakeLLM 不返回标记格式，fallback 为单个无来源句子
+    summary, sentences = summarize_chapter_with_sources(
+        NoMarkupLLM(), chapter.title, chapter.content, 0.1
+    )
+    # LLM 不返回标记格式，fallback 为单个无来源句子
     assert len(sentences) == 1
     assert sentences[0]["source"] == ""
     assert summary == sentences[0]["text"]

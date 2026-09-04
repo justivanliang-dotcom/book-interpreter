@@ -151,6 +151,20 @@ def test_summarize_chapter():
     assert data["summary"]
     assert isinstance(data["sentences"], list)
     assert data["sentences"][0]["text"]
+    # 短内容直接返回原文，实际字数与目标字数一致
+    assert data["word_count"] == data["target_words"] == len(data["summary"])
+
+
+def test_summarize_chapter_reports_word_counts():
+    # 长章节：目标字数 = 原文可见字数 × 比例，并返回实际字数供前端展示
+    content = f"# 测试书\n\n## 第一章\n{'内容' * 1000}\n\n## 第二章\n{'内容' * 500}"
+    book = _upload(content=content).json()
+    resp = client.post(f"/api/books/{book['id']}/chapters/0/summarize?ratio=0.5")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["target_words"] == 1000  # 2000 可见字 × 50%
+    assert 900 <= data["word_count"] <= 1100  # FakeLLM 输出恰好达标
+    assert data["word_count"] <= data["target_words"] * 1.1
 
 
 def test_summarize_chapter_ratio_5_percent():

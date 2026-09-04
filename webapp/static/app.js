@@ -173,9 +173,16 @@
   }
 
   function renderSummary(container, data) {
+    container.innerHTML = '';
+    if (data.target_words && data.word_count) {
+      var meta = document.createElement('div');
+      meta.className = 'summary-meta';
+      var pct = Math.round(data.word_count / data.target_words * 100);
+      meta.textContent = '实际 ' + data.word_count + ' 字 / 目标 ' + data.target_words + ' 字（' + pct + '%）';
+      container.appendChild(meta);
+    }
     var sentences = data.sentences;
     if (sentences && sentences.length) {
-      container.innerHTML = '';
       sentences.forEach(function (s) {
         var span = document.createElement('span');
         span.className = 'summary-sentence';
@@ -185,7 +192,9 @@
         container.appendChild(document.createTextNode(' '));
       });
     } else {
-      container.innerHTML = escapeHtml(data.summary);
+      var plain = document.createElement('div');
+      plain.textContent = data.summary;
+      container.appendChild(plain);
     }
   }
 
@@ -241,7 +250,13 @@
     btn.disabled = true;
     api('/api/books/' + state.bookId + '/chapters/' + index + '/summarize?ratio=' + ratio, { method: 'POST' })
       .then(function (data) {
-        state.chapterSummaries[index] = { ratio: ratio, summary: data.summary, sentences: data.sentences };
+        state.chapterSummaries[index] = {
+          ratio: ratio,
+          summary: data.summary,
+          sentences: data.sentences,
+          word_count: data.word_count,
+          target_words: data.target_words
+        };
         var head = li.querySelector('.chapter-head');
         if (head && head.textContent !== data.title) head.textContent = data.title;
         renderSummary(summaryBox, data);

@@ -15,15 +15,39 @@ def _truncate(text: str, limit: int = 6000) -> str:
     return text if len(text) <= limit else text[:limit] + "……（内容过长已截断）"
 
 
+def count_chars(text: str) -> int:
+    """统计可见字符数（不含空格与换行），作为统一的“字数”口径。"""
+    return len(re.sub(r"\s", "", text or ""))
+
+
+def summary_target_words(content: str, ratio: float) -> int:
+    """按比例计算浓缩目标字数，短内容直接按原文长度返回。
+
+    字数口径为不含空格与换行的可见字符数；
+    目标 = max(100, 原文可见字数 × ratio)，且不超过原文长度。
+    """
+    src_chars = count_chars(_truncate(content, 20000))
+    return min(max(100, int(src_chars * ratio)), src_chars)
+
+
 def _build_summary_prompt(
-    title: str, content: str, target_words: int, with_sources: bool = False
+    title: str,
+    content: str,
+    target_words: int,
+    with_sources: bool = False,
+    retry_chars: int | None = None,
 ) -> str:
-    lower = max(50, int(target_words * 0.8))
-    upper = int(target_words * 1.2)
+    shown = _truncate(content, 20000)
+    src_chars = count_chars(shown)
+    lower = max(50, int(target_words * 0.9))
+    upper = int(target_words * 1.1)
     prompt = (
-        f"请将以下书籍章节浓缩为一段中文摘要，目标字数约 {target_words} 字"
-        f"（请尽量接近该字数，允许在 {lower}~{upper} 字之间），"
-        f"概括本章的核心内容和主要观点。"
+        f"请将以下书籍章节浓缩为一段中文摘要。\n"
+        f"原文约 {src_chars} 字（不含空格与换行）。\n"
+        f"输出要求：浓缩结果约 {target_words} 字，必须控制在 {lower}~{upper} 字之间"
+        f"（按不含空格与换行的字符统计）。这是按比例浓缩而非简略概括："
+        f"请覆盖核心内容并充分展开细节与例子，字数不足就补充内容，超了就精简。\n"
+        f"输出前请自查字数。"
     )
     if with_sources:
         prompt += (
@@ -34,7 +58,12 @@ def _build_summary_prompt(
             "请摘录最相关的一段连续原文，宁可摘录更长也不要截断。用以下标记分隔：\n"
             "【句】摘要句子1\n【源】原文摘录1\n【句】摘要句子2\n【源】原文摘录2\n"
         )
-    return prompt + f"\n\n章节标题：{title}\n\n章节内容：\n{_truncate(content, 20000)}"
+    if retry_chars is not None:
+        prompt += (
+            f"\n\n注意：上次输出约 {retry_chars} 字，未达到目标字数。"
+            f"请重新输出，严格控制在 {lower}~{upper} 字之间。"
+        )
+    return prompt + f"\n\n章节标题：{title}\n\n章节内容：\n{shown}"
 
 
 def summarize_chapter(
@@ -46,19 +75,27 @@ def summarize_chapter(
 ) -> str:
     """生成单个章节的浓缩摘要，长度按原文比例计算。
 
-    ratio 为 0~1 的比例值，目标字数 = 原文字数 × ratio，
-    上限为原文字数（不设固定上限），下限为 100 字；
-    max_words 可额外限制目标字数上限（用于报告等固定长度场景）。
-    当目标字数达到原文字数时（如 100%），直接返回原文，不再调用 LLM。
+    ratio 为 0~1 的比例值，目标字数 = 原文可见字数 × ratio，
+    上限为原文字数，下限为 100 字；max_words 可额外限制目标字数上限
+    （用于报告等固定长度场景）。当目标字数达到原文字数时（如 100%），
+    直接返回原文，不再调用 LLM。
+    输出后校验实际字数，偏差超过 10% 时带上次字数反馈重试一次。
     """
-    content_length = len(content)
-    target_words = max(100, min(content_length, int(content_length * ratio)))
+    src_chars = count_chars(_truncate(content, 20000))
+    target_words = max(100, min(src_chars, int(src_chars * ratio)))
     if max_words is not None:
         target_words = min(target_words, max_words)
-    if target_words >= content_length:
+    if target_words >= src_chars:
         return content
+    max_tokens = min(target_words * 2 + 400, 16000)
     prompt = _build_summary_prompt(title, content, target_words)
-    return llm.complete(prompt, max_tokens=min(target_words * 2, 16000))
+    raw = llm.complete(prompt, max_tokens=max_tokens)
+    if abs(count_chars(raw) - target_words) > target_words * 0.1:
+        raw = llm.complete(
+            _build_summary_prompt(title, content, target_words, retry_chars=count_chars(raw)),
+            max_tokens=max_tokens,
+        )
+    return raw
 
 
 def _parse_summary_with_sources(text: str) -> list[dict]:
@@ -118,14 +155,26 @@ def summarize_chapter_with_sources(
     context 为包含原文摘录的完整上下文，highlight 为其中直接关联的部分。
     当目标字数达到原文字数时（如 100%）直接返回原文。
     对含省略号或过短的原文摘录，用检索到的完整段落兜底替换。
+    输出后校验摘要句总字数，偏差超过 10% 时带反馈重试一次。
     """
-    content_length = len(content)
-    target_words = max(100, min(content_length, int(content_length * ratio)))
-    if target_words >= content_length:
+    src_chars = count_chars(_truncate(content, 20000))
+    target_words = max(100, min(src_chars, int(src_chars * ratio)))
+    if target_words >= src_chars:
         return content, [{"text": content, "source": content, "context": content, "highlight": content}]
+    max_tokens = min(target_words * 2 + 400, 16000)
     prompt = _build_summary_prompt(title, content, target_words, with_sources=True)
-    raw = llm.complete(prompt, max_tokens=min(target_words * 2, 16000))
+    raw = llm.complete(prompt, max_tokens=max_tokens)
     sentences = _parse_summary_with_sources(raw)
+    summary_text = "".join(s["text"] for s in sentences)
+    if sentences and abs(count_chars(summary_text) - target_words) > target_words * 0.1:
+        raw = llm.complete(
+            _build_summary_prompt(
+                title, content, target_words, with_sources=True, retry_chars=count_chars(summary_text)
+            ),
+            max_tokens=max_tokens,
+        )
+        sentences = _parse_summary_with_sources(raw)
+        summary_text = "".join(s["text"] for s in sentences)
     if not sentences:
         return raw, [{"text": raw, "source": "", "context": "", "highlight": ""}]
     for s in sentences:

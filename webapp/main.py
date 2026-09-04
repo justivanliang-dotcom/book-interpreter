@@ -14,10 +14,12 @@ from pydantic import BaseModel
 
 from book_interpreter.exporter import export
 from book_interpreter.interpreter import (
+    count_chars,
     explain_chapter_by_ratio,
     extract_chapter_titles,
     generate_overview,
     summarize_chapter_with_sources,
+    summary_target_words,
 )
 from book_interpreter.llm import LLMClient, LLMError
 from book_interpreter.loaders import SUPPORTED_EXTENSIONS, UnsupportedFormatError, extract_text
@@ -67,6 +69,8 @@ class ChapterSummarizeOut(BaseModel):
     title: str
     summary: str
     sentences: list[dict] = []
+    word_count: int = 0
+    target_words: int = 0
 
 
 class PlainOut(BaseModel):
@@ -175,7 +179,13 @@ def summarize_chapter_api(
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
     chapter.summary = summary
-    return ChapterSummarizeOut(title=chapter.title, summary=summary, sentences=sentences)
+    return ChapterSummarizeOut(
+        title=chapter.title,
+        summary=summary,
+        sentences=sentences,
+        word_count=count_chars(summary),
+        target_words=summary_target_words(chapter.content, ratio),
+    )
 
 
 @app.post("/api/books/{book_id}/chapters/{chapter_index}/plain", response_model=PlainOut)
