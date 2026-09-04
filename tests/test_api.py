@@ -86,6 +86,35 @@ def test_upload_pdf():
     assert resp.json()["filename"] == "book.pdf"
 
 
+def test_upload_epub_uses_toc_titles(tmp_path):
+    """EPUB 章节标题来自书内目录，而非正文拼凑。"""
+    from ebooklib import epub
+
+    book = epub.EpubBook()
+    book.set_identifier("api-epub")
+    book.set_title("三体")
+    toc_items = []
+    for i, t in enumerate(("前言", "第一章 科学边界", "注释"), 1):
+        ch = epub.EpubHtml(title=t, file_name="c%d.xhtml" % i, lang="zh")
+        ch.content = f"<html><body><h1>{t}</h1><p>{t} 正文。</p></body></html>"
+        book.add_item(ch)
+        toc_items.append(ch)
+    book.toc = tuple(toc_items)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    path = tmp_path / "santi.epub"
+    epub.write_epub(str(path), book)
+
+    resp = client.post(
+        "/api/books",
+        files={"file": ("santi.epub", path.read_bytes(), "application/epub+zip")},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["title"] == "三体"
+    assert [c["title"] for c in data["chapters"]] == ["前言", "第一章 科学边界", "注释"]
+
+
 def test_raw_returns_original_text():
     content = "# 测试书\n\n## 第一章\n内容一\n\n## 第二章\n内容二"
     book = _upload(content=content).json()

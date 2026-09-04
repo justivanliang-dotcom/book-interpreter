@@ -11,7 +11,6 @@
   var $ = function (id) { return document.getElementById(id); };
   var fileInput = $('file-input');
   var uploadBtn = $('upload-btn');
-  var uploadCard = $('upload-card');
   var uploadStatus = $('upload-status');
   var bookCard = $('book-card');
   var bookTitle = $('book-title');
@@ -340,19 +339,32 @@
     fileInput.value = '';
   });
 
+  // 全页拖放上传：拖入任意位置即显示提示层，松开后上传
+  var dropOverlay = document.createElement('div');
+  dropOverlay.className = 'drop-overlay';
+  dropOverlay.hidden = true;
+  dropOverlay.textContent = '松开鼠标，上传书籍';
+  document.body.appendChild(dropOverlay);
+
+  var dragDepth = 0;
+  function setDragActive(active) {
+    dropOverlay.hidden = !active;
+  }
   ['dragenter', 'dragover'].forEach(function (evt) {
-    uploadCard.addEventListener(evt, function (e) {
+    document.addEventListener(evt, function (e) {
       e.preventDefault();
-      uploadCard.classList.add('drag-over');
+      if (dragDepth === 0) setDragActive(true);
+      dragDepth++;
     });
   });
   ['dragleave', 'drop'].forEach(function (evt) {
-    uploadCard.addEventListener(evt, function (e) {
+    document.addEventListener(evt, function (e) {
       e.preventDefault();
-      uploadCard.classList.remove('drag-over');
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) setDragActive(false);
     });
   });
-  uploadCard.addEventListener('drop', function (e) {
+  document.addEventListener('drop', function (e) {
     var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     if (!file) return;
     uploadFile(file);
