@@ -90,13 +90,23 @@ def _split_paragraphs(text: str) -> list[str]:
     return merged
 
 
-def _retrieve_source(content: str, sentence: str) -> str:
-    """在原文中检索与浓缩句最相关的完整段落，作为原文出处兜底。"""
+def _retrieve_context(content: str, sentence: str) -> tuple[str, str]:
+    """检索与浓缩句最相关的段落及其前后上下文。
+
+    返回 (context, highlight)：context 为包含关联段落的完整上下文，
+    highlight 为其中与浓缩句直接关联的段落（用于高亮）。
+    """
     paras = _split_paragraphs(content)
     if not paras:
-        return ""
+        return "", ""
     results = Retriever(paras).retrieve(sentence, top_k=1)
-    return results[0][0] if results else ""
+    if not results:
+        return "", ""
+    idx = paras.index(results[0][0])
+    start = max(0, idx - 1)
+    end = min(len(paras), idx + 2)
+    context = "\n\n".join(paras[start:end])
+    return context, results[0][0]
 
 
 def summarize_chapter_with_sources(
@@ -104,25 +114,34 @@ def summarize_chapter_with_sources(
 ) -> tuple[str, list[dict]]:
     """浓缩章节并让 LLM 为每个句子标注对应的原文摘录。
 
-    返回 (摘要纯文本, [{text, source}, ...])。
+    返回 (摘要纯文本, [{text, source, context, highlight}, ...])。
+    context 为包含原文摘录的完整上下文，highlight 为其中直接关联的部分。
     当目标字数达到原文字数时（如 100%）直接返回原文。
     对含省略号或过短的原文摘录，用检索到的完整段落兜底替换。
     """
     content_length = len(content)
     target_words = max(100, min(content_length, int(content_length * ratio)))
     if target_words >= content_length:
-        return content, [{"text": content, "source": content}]
+        return content, [{"text": content, "source": content, "context": content, "highlight": content}]
     prompt = _build_summary_prompt(title, content, target_words, with_sources=True)
     raw = llm.complete(prompt, max_tokens=min(target_words * 2, 16000))
     sentences = _parse_summary_with_sources(raw)
     if not sentences:
-        return raw, [{"text": raw, "source": ""}]
+        return raw, [{"text": raw, "source": "", "context": "", "highlight": ""}]
     for s in sentences:
         src = s.get("source", "")
+        context, retrieved = _retrieve_context(content, s["text"])
+        if not context:
+            context = src
+            highlight = src
+        elif src and src in context:
+            highlight = src
+        else:
+            highlight = retrieved
+        s["context"] = context
+        s["highlight"] = highlight
         if not src or "…" in src or "..." in src or len(src) < 20:
-            retrieved = _retrieve_source(content, s["text"])
-            if retrieved:
-                s["source"] = retrieved
+            s["source"] = highlight
     summary_text = "".join(s["text"] for s in sentences)
     return summary_text, sentences
 

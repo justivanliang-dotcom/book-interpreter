@@ -3,7 +3,7 @@
 from book_interpreter.interpreter import (
     _parse_list,
     _parse_summary_with_sources,
-    _retrieve_source,
+    _retrieve_context,
     _split_paragraphs,
     extract_chapter_titles,
     generate_overview,
@@ -172,8 +172,10 @@ def test_summarize_chapter_with_sources():
     summary, sentences = summarize_chapter_with_sources(SourceLLM(), chapter.title, chapter.content, 0.1)
     assert summary == "摘要句一。摘要句二。"
     assert len(sentences) == 2
-    assert sentences[0] == {"text": "摘要句一。", "source": "原文句一。"}
-    assert sentences[1] == {"text": "摘要句二。", "source": "原文句二。"}
+    assert sentences[0]["text"] == "摘要句一。"
+    assert sentences[0]["source"] == "原文句一。"
+    assert sentences[1]["text"] == "摘要句二。"
+    assert sentences[1]["source"] == "原文句二。"
 
 
 def test_summarize_chapter_with_sources_fallback(fake_llm):
@@ -190,7 +192,12 @@ def test_summarize_chapter_with_sources_full_returns_original(fake_llm):
     calls_before = len(fake_llm.calls)
     summary, sentences = summarize_chapter_with_sources(fake_llm, chapter.title, chapter.content, 1.0)
     assert summary == chapter.content
-    assert sentences == [{"text": chapter.content, "source": chapter.content}]
+    assert sentences == [{
+        "text": chapter.content,
+        "source": chapter.content,
+        "context": chapter.content,
+        "highlight": chapter.content,
+    }]
     assert len(fake_llm.calls) == calls_before
 
 
@@ -205,15 +212,17 @@ def test_split_paragraphs():
     assert "这是第二段比较长的内容，同样用于测试段落切分的合并行为。短" in paras[1]
 
 
-def test_retrieve_source_finds_paragraph():
+def test_retrieve_context_includes_neighbor_paragraphs():
     content = (
-        "人工智能正在改变世界。\n\n"
-        "从制造业到服务业，AI 的应用无处不在。这场变革比工业革命更深远。\n\n"
-        "企业必须拥抱变革。"
+        "第一段：人工智能正在改变世界。\n\n"
+        "第二段：从制造业到服务业，AI 的应用无处不在。这场变革比工业革命更深远。\n\n"
+        "第三段：企业必须拥抱变革。"
     )
-    src = _retrieve_source(content, "AI 的应用无处不在，变革比工业革命更深远")
-    assert "制造业" in src
-    assert "工业革命" in src
+    context, highlight = _retrieve_context(content, "AI 的应用无处不在，变革比工业革命更深远")
+    assert "第一段" in context
+    assert "第三段" in context
+    assert "制造业" in highlight
+    assert "工业革命" in highlight
 
 
 class EllipsisLLM(FakeLLM):
@@ -235,5 +244,25 @@ def test_summarize_chapter_with_sources_replaces_ellipsis():
     chapter = Chapter(title="测试章", content=content, order=0)
     summary, sentences = summarize_chapter_with_sources(EllipsisLLM(), chapter.title, chapter.content, 0.5)
     assert len(sentences) == 1
-    assert "…" not in sentences[0]["source"]
-    assert "人工智能" in sentences[0]["source"]
+    s = sentences[0]
+    assert "…" not in s["source"]
+    assert "人工智能" in s["source"]
+    # 上下文包含关联段落，highlight 是其中的子串
+    assert s["context"]
+    assert s["highlight"]
+    assert s["highlight"] in s["context"]
+
+
+def test_summarize_chapter_with_sources_keeps_valid_source():
+    content = (
+        "第一段：人工智能正在深刻改变我们的世界，它不再只是实验室里的技术。\n\n"
+        "第二段：从制造业到服务业，从医疗到教育，AI 的应用无处不在。这场变革比工业革命更加深远。\n\n"
+        "第三段：企业必须拥抱这场变革，否则将被时代淘汰。"
+    ) * 10
+    chapter = Chapter(title="测试章", content=content, order=0)
+    summary, sentences = summarize_chapter_with_sources(SourceLLM(), chapter.title, chapter.content, 0.5)
+    assert len(sentences) == 2
+    for s in sentences:
+        assert s["context"]
+        assert s["highlight"]
+        assert s["highlight"] in s["context"]

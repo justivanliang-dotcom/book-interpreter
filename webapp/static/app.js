@@ -170,7 +170,18 @@
     var all = document.querySelectorAll('.summary-sentence.active');
     all.forEach(function (a) { a.classList.remove('active'); });
     el.classList.add('active');
-    sourceBody.textContent = s.source || '（该句未找到对应原文）';
+    if (s.context) {
+      var html = escapeHtml(s.context);
+      if (s.highlight) {
+        var hl = escapeHtml(s.highlight);
+        if (hl) {
+          html = html.split(hl).join('<mark>' + hl + '</mark>');
+        }
+      }
+      sourceBody.innerHTML = html;
+    } else {
+      sourceBody.textContent = s.source || '（该句未找到对应原文）';
+    }
     sourcePanel.hidden = false;
   }
 

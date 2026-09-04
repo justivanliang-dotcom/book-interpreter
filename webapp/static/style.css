@@ -190,6 +190,12 @@ body {
   white-space: pre-wrap;
   color: var(--ink);
 }
+.source-panel-body mark {
+  background: rgba(201,138,61,0.35);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
 
 .empty { text-align: center; color: var(--muted); padding: 3rem 1rem; }
 
