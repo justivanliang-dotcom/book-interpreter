@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 from .llm import LLMClient
 from .models import Book, Interpretation
 from .parser import starts_with_marker
+from .retriever import Retriever
 
 
 def _truncate(text: str, limit: int = 6000) -> str:
@@ -25,8 +28,10 @@ def _build_summary_prompt(
     if with_sources:
         prompt += (
             "\n\n输出格式要求：把摘要按句子拆开，每个句子后紧跟该句对应的原文摘录。"
-            "原文摘录必须逐字取自原文，应完整覆盖该句所依据的原文内容"
-            "（通常 30~150 字），不要过度截取导致信息不完整。用以下标记分隔：\n"
+            "原文摘录必须逐字取自原文，必须是原文中连续的一段文字，"
+            "完整覆盖该句所依据的原文内容（通常 50~200 字）。"
+            "严禁使用省略号（……、...）省略中间内容；若原文较长，"
+            "请摘录最相关的一段连续原文，宁可摘录更长也不要截断。用以下标记分隔：\n"
             "【句】摘要句子1\n【源】原文摘录1\n【句】摘要句子2\n【源】原文摘录2\n"
         )
     return prompt + f"\n\n章节标题：{title}\n\n章节内容：\n{_truncate(content, 20000)}"
@@ -73,6 +78,27 @@ def _parse_summary_with_sources(text: str) -> list[dict]:
     return [s for s in sentences if s["text"]]
 
 
+def _split_paragraphs(text: str) -> list[str]:
+    """按换行切分段落，并把过短段落合并到前一段，避免碎片化。"""
+    paras = [p.strip() for p in re.split(r"\n+", text) if p.strip()]
+    merged: list[str] = []
+    for p in paras:
+        if merged and len(p) < 20:
+            merged[-1] += p
+        else:
+            merged.append(p)
+    return merged
+
+
+def _retrieve_source(content: str, sentence: str) -> str:
+    """在原文中检索与浓缩句最相关的完整段落，作为原文出处兜底。"""
+    paras = _split_paragraphs(content)
+    if not paras:
+        return ""
+    results = Retriever(paras).retrieve(sentence, top_k=1)
+    return results[0][0] if results else ""
+
+
 def summarize_chapter_with_sources(
     llm: LLMClient, title: str, content: str, ratio: float = 0.25
 ) -> tuple[str, list[dict]]:
@@ -80,6 +106,7 @@ def summarize_chapter_with_sources(
 
     返回 (摘要纯文本, [{text, source}, ...])。
     当目标字数达到原文字数时（如 100%）直接返回原文。
+    对含省略号或过短的原文摘录，用检索到的完整段落兜底替换。
     """
     content_length = len(content)
     target_words = max(100, min(content_length, int(content_length * ratio)))
@@ -90,6 +117,12 @@ def summarize_chapter_with_sources(
     sentences = _parse_summary_with_sources(raw)
     if not sentences:
         return raw, [{"text": raw, "source": ""}]
+    for s in sentences:
+        src = s.get("source", "")
+        if not src or "…" in src or "..." in src or len(src) < 20:
+            retrieved = _retrieve_source(content, s["text"])
+            if retrieved:
+                s["source"] = retrieved
     summary_text = "".join(s["text"] for s in sentences)
     return summary_text, sentences
 

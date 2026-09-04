@@ -3,6 +3,8 @@
 from book_interpreter.interpreter import (
     _parse_list,
     _parse_summary_with_sources,
+    _retrieve_source,
+    _split_paragraphs,
     extract_chapter_titles,
     generate_overview,
     interpret_book,
@@ -190,3 +192,48 @@ def test_summarize_chapter_with_sources_full_returns_original(fake_llm):
     assert summary == chapter.content
     assert sentences == [{"text": chapter.content, "source": chapter.content}]
     assert len(fake_llm.calls) == calls_before
+
+
+def test_split_paragraphs():
+    text = (
+        "这是第一段比较长的内容，用来测试段落切分逻辑是否正确无误。\n\n"
+        "这是第二段比较长的内容，同样用于测试段落切分的合并行为。\n短\n"
+        "这是第三段比较长的内容，用于验证过短段落合并到前一段。"
+    )
+    paras = _split_paragraphs(text)
+    assert len(paras) == 3
+    assert "这是第二段比较长的内容，同样用于测试段落切分的合并行为。短" in paras[1]
+
+
+def test_retrieve_source_finds_paragraph():
+    content = (
+        "人工智能正在改变世界。\n\n"
+        "从制造业到服务业，AI 的应用无处不在。这场变革比工业革命更深远。\n\n"
+        "企业必须拥抱变革。"
+    )
+    src = _retrieve_source(content, "AI 的应用无处不在，变革比工业革命更深远")
+    assert "制造业" in src
+    assert "工业革命" in src
+
+
+class EllipsisLLM(FakeLLM):
+    def complete(self, prompt, system="", max_tokens=2000):
+        if "【句】" in prompt:
+            return (
+                "【句】人工智能正在深刻改变我们的世界，这场变革比工业革命更加深远。\n"
+                "【源】原文开头……原文结尾。\n"
+            )
+        return super().complete(prompt, system, max_tokens)
+
+
+def test_summarize_chapter_with_sources_replaces_ellipsis():
+    content = (
+        "第一段：人工智能正在深刻改变我们的世界，它不再只是实验室里的技术。\n\n"
+        "第二段：从制造业到服务业，从医疗到教育，AI 的应用无处不在。这场变革比工业革命更加深远。\n\n"
+        "第三段：企业必须拥抱这场变革，否则将被时代淘汰。"
+    ) * 10
+    chapter = Chapter(title="测试章", content=content, order=0)
+    summary, sentences = summarize_chapter_with_sources(EllipsisLLM(), chapter.title, chapter.content, 0.5)
+    assert len(sentences) == 1
+    assert "…" not in sentences[0]["source"]
+    assert "人工智能" in sentences[0]["source"]
