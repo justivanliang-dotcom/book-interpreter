@@ -123,7 +123,9 @@
     expand.appendChild(ratioRow);
     expand.appendChild(summaryBox);
 
-    select.addEventListener('change', function () { condenseChapter(index); });
+    select.addEventListener('change', function () {
+      state.chapterRatios[index] = parseFloat(select.value);
+    });
     btn.addEventListener('click', function () { condenseChapter(index); });
 
     li.appendChild(head);
@@ -172,10 +174,20 @@
     sourcePanel.hidden = false;
   }
 
-  sourceClose.addEventListener('click', function () {
+  function closeSource() {
     sourcePanel.hidden = true;
     var all = document.querySelectorAll('.summary-sentence.active');
     all.forEach(function (a) { a.classList.remove('active'); });
+  }
+
+  sourceClose.addEventListener('click', closeSource);
+
+  // 点击面板外部（非句子、非面板）时立即关闭原文面板
+  document.addEventListener('click', function (e) {
+    if (sourcePanel.hidden) return;
+    if (sourcePanel.contains(e.target)) return;
+    if (e.target.classList && e.target.classList.contains('summary-sentence')) return;
+    closeSource();
   });
 
   function condenseChapter(index) {
