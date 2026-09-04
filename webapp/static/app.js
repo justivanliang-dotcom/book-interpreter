@@ -350,21 +350,26 @@
   function setDragActive(active) {
     dropOverlay.hidden = !active;
   }
-  ['dragenter', 'dragover'].forEach(function (evt) {
-    document.addEventListener(evt, function (e) {
-      e.preventDefault();
-      if (dragDepth === 0) setDragActive(true);
-      dragDepth++;
-    });
+  // 提示层显隐只由 dragenter/dragleave 成对计数控制。
+  // dragover 在拖动期间会高频触发，绝不能参与计数，
+  // 否则计数失衡、drop 后提示层残留导致上传无响应。
+  document.addEventListener('dragenter', function (e) {
+    e.preventDefault();
+    if (dragDepth === 0) setDragActive(true);
+    dragDepth++;
   });
-  ['dragleave', 'drop'].forEach(function (evt) {
-    document.addEventListener(evt, function (e) {
-      e.preventDefault();
-      dragDepth = Math.max(0, dragDepth - 1);
-      if (dragDepth === 0) setDragActive(false);
-    });
+  document.addEventListener('dragover', function (e) {
+    e.preventDefault();
+  });
+  document.addEventListener('dragleave', function (e) {
+    e.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) setDragActive(false);
   });
   document.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dragDepth = 0;
+    setDragActive(false);
     var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     if (!file) return;
     uploadFile(file);
