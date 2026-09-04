@@ -89,6 +89,8 @@ def test_summarize_chapter():
     data = resp.json()
     assert data["title"] == "第一章"
     assert data["summary"]
+    assert isinstance(data["sentences"], list)
+    assert data["sentences"][0]["text"]
 
 
 def test_summarize_chapter_ratio_5_percent():

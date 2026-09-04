@@ -2,10 +2,12 @@
 
 from book_interpreter.interpreter import (
     _parse_list,
+    _parse_summary_with_sources,
     extract_chapter_titles,
     generate_overview,
     interpret_book,
     summarize_chapter,
+    summarize_chapter_with_sources,
 )
 from book_interpreter.models import Book, Chapter
 from tests.conftest import FakeLLM
@@ -135,3 +137,56 @@ def test_generate_overview_does_not_fill_chapter_summaries(fake_llm):
     assert len(interp.quotes) == 3
     assert book.chapters[0].summary == ""
     assert book.chapters[1].summary == ""
+
+
+def test_parse_summary_with_sources():
+    text = (
+        "【句】这是第一句摘要。\n"
+        "【源】这是第一句对应的原文。\n"
+        "【句】这是第二句摘要。\n"
+        "【源】这是第二句对应的原文。\n"
+    )
+    sentences = _parse_summary_with_sources(text)
+    assert sentences == [
+        {"text": "这是第一句摘要。", "source": "这是第一句对应的原文。"},
+        {"text": "这是第二句摘要。", "source": "这是第二句对应的原文。"},
+    ]
+
+
+def test_parse_summary_with_sources_missing_source():
+    sentences = _parse_summary_with_sources("【句】只有摘要没有原文。\n")
+    assert sentences == [{"text": "只有摘要没有原文。", "source": ""}]
+
+
+class SourceLLM(FakeLLM):
+    def complete(self, prompt, system="", max_tokens=2000):
+        if "【句】" in prompt:
+            return "【句】摘要句一。\n【源】原文句一。\n【句】摘要句二。\n【源】原文句二。\n"
+        return super().complete(prompt, system, max_tokens)
+
+
+def test_summarize_chapter_with_sources():
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)
+    summary, sentences = summarize_chapter_with_sources(SourceLLM(), chapter.title, chapter.content, 0.1)
+    assert summary == "摘要句一。摘要句二。"
+    assert len(sentences) == 2
+    assert sentences[0] == {"text": "摘要句一。", "source": "原文句一。"}
+    assert sentences[1] == {"text": "摘要句二。", "source": "原文句二。"}
+
+
+def test_summarize_chapter_with_sources_fallback(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)
+    summary, sentences = summarize_chapter_with_sources(fake_llm, chapter.title, chapter.content, 0.1)
+    # FakeLLM 不返回标记格式，fallback 为单个无来源句子
+    assert len(sentences) == 1
+    assert sentences[0]["source"] == ""
+    assert summary == sentences[0]["text"]
+
+
+def test_summarize_chapter_with_sources_full_returns_original(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)
+    calls_before = len(fake_llm.calls)
+    summary, sentences = summarize_chapter_with_sources(fake_llm, chapter.title, chapter.content, 1.0)
+    assert summary == chapter.content
+    assert sentences == [{"text": chapter.content, "source": chapter.content}]
+    assert len(fake_llm.calls) == calls_before

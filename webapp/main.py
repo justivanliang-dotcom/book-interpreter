@@ -16,7 +16,7 @@ from book_interpreter.exporter import export
 from book_interpreter.interpreter import (
     extract_chapter_titles,
     generate_overview,
-    summarize_chapter,
+    summarize_chapter_with_sources,
 )
 from book_interpreter.llm import LLMClient, LLMError
 from book_interpreter.parser import parse_book
@@ -64,6 +64,7 @@ class InterpretOut(BaseModel):
 class ChapterSummarizeOut(BaseModel):
     title: str
     summary: str
+    sentences: list[dict] = []
 
 
 class RawOut(BaseModel):
@@ -157,11 +158,11 @@ def summarize_chapter_api(
         extract_chapter_titles(llm, book)
         record["titles_extracted"] = True
     try:
-        summary = summarize_chapter(llm, chapter.title, chapter.content, ratio)
+        summary, sentences = summarize_chapter_with_sources(llm, chapter.title, chapter.content, ratio)
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
     chapter.summary = summary
-    return ChapterSummarizeOut(title=chapter.title, summary=summary)
+    return ChapterSummarizeOut(title=chapter.title, summary=summary, sentences=sentences)
 
 
 @app.post("/api/books/{book_id}/ask", response_model=AskOut)

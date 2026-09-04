@@ -12,6 +12,25 @@ def _truncate(text: str, limit: int = 6000) -> str:
     return text if len(text) <= limit else text[:limit] + "……（内容过长已截断）"
 
 
+def _build_summary_prompt(
+    title: str, content: str, target_words: int, with_sources: bool = False
+) -> str:
+    lower = max(50, int(target_words * 0.8))
+    upper = int(target_words * 1.2)
+    prompt = (
+        f"请将以下书籍章节浓缩为一段中文摘要，目标字数约 {target_words} 字"
+        f"（请尽量接近该字数，允许在 {lower}~{upper} 字之间），"
+        f"概括本章的核心内容和主要观点。"
+    )
+    if with_sources:
+        prompt += (
+            "\n\n输出格式要求：把摘要按句子拆开，每个句子后紧跟该句对应的原文摘录"
+            "（必须是原文中真实出现的文字，可适当截取），用以下标记分隔：\n"
+            "【句】摘要句子1\n【源】原文摘录1\n【句】摘要句子2\n【源】原文摘录2\n"
+        )
+    return prompt + f"\n\n章节标题：{title}\n\n章节内容：\n{_truncate(content, 20000)}"
+
+
 def summarize_chapter(
     llm: LLMClient,
     title: str,
@@ -32,15 +51,46 @@ def summarize_chapter(
         target_words = min(target_words, max_words)
     if target_words >= content_length:
         return content
-    lower = max(50, int(target_words * 0.8))
-    upper = int(target_words * 1.2)
-    prompt = (
-        f"请将以下书籍章节浓缩为一段中文摘要，目标字数约 {target_words} 字"
-        f"（请尽量接近该字数，允许在 {lower}~{upper} 字之间），"
-        f"概括本章的核心内容和主要观点。\n\n"
-        f"章节标题：{title}\n\n章节内容：\n{_truncate(content, 20000)}"
-    )
+    prompt = _build_summary_prompt(title, content, target_words)
     return llm.complete(prompt, max_tokens=min(target_words * 2, 16000))
+
+
+def _parse_summary_with_sources(text: str) -> list[dict]:
+    """解析带原文引用的浓缩结果，返回 [{text, source}, ...]。"""
+    sentences: list[dict] = []
+    current: dict | None = None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("【句】"):
+            if current and current.get("text"):
+                sentences.append(current)
+            current = {"text": line[len("【句】"):].strip(), "source": ""}
+        elif line.startswith("【源】") and current is not None:
+            current["source"] = line[len("【源】"):].strip()
+    if current and current.get("text"):
+        sentences.append(current)
+    return [s for s in sentences if s["text"]]
+
+
+def summarize_chapter_with_sources(
+    llm: LLMClient, title: str, content: str, ratio: float = 0.25
+) -> tuple[str, list[dict]]:
+    """浓缩章节并让 LLM 为每个句子标注对应的原文摘录。
+
+    返回 (摘要纯文本, [{text, source}, ...])。
+    当目标字数达到原文字数时（如 100%）直接返回原文。
+    """
+    content_length = len(content)
+    target_words = max(100, min(content_length, int(content_length * ratio)))
+    if target_words >= content_length:
+        return content, [{"text": content, "source": content}]
+    prompt = _build_summary_prompt(title, content, target_words, with_sources=True)
+    raw = llm.complete(prompt, max_tokens=min(target_words * 2, 16000))
+    sentences = _parse_summary_with_sources(raw)
+    if not sentences:
+        return raw, [{"text": raw, "source": ""}]
+    summary_text = "".join(s["text"] for s in sentences)
+    return summary_text, sentences
 
 
 def extract_chapter_titles(llm: LLMClient, book: Book) -> None:

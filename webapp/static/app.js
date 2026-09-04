@@ -25,6 +25,9 @@
   var questionInput = $('question-input');
   var askBtn = $('ask-btn');
   var answer = $('answer');
+  var sourcePanel = $('source-panel');
+  var sourceBody = $('source-body');
+  var sourceClose = $('source-close');
 
   function setStatus(msg, isError) {
     uploadStatus.textContent = msg || '';
@@ -138,11 +141,42 @@
     var summaryBox = li.querySelector('.chapter-summary');
     var cached = state.chapterSummaries[index];
     if (cached) {
-      summaryBox.innerHTML = escapeHtml(cached.summary);
+      renderSummary(summaryBox, cached);
     } else {
       summaryBox.innerHTML = '<div class="hint">点击「浓缩本章」生成浓缩内容</div>';
     }
   }
+
+  function renderSummary(container, data) {
+    var sentences = data.sentences;
+    if (sentences && sentences.length) {
+      container.innerHTML = '';
+      sentences.forEach(function (s) {
+        var span = document.createElement('span');
+        span.className = 'summary-sentence';
+        span.textContent = s.text;
+        span.addEventListener('click', function () { showSource(s, span); });
+        container.appendChild(span);
+        container.appendChild(document.createTextNode(' '));
+      });
+    } else {
+      container.innerHTML = escapeHtml(data.summary);
+    }
+  }
+
+  function showSource(s, el) {
+    var all = document.querySelectorAll('.summary-sentence.active');
+    all.forEach(function (a) { a.classList.remove('active'); });
+    el.classList.add('active');
+    sourceBody.textContent = s.source || '（该句未找到对应原文）';
+    sourcePanel.hidden = false;
+  }
+
+  sourceClose.addEventListener('click', function () {
+    sourcePanel.hidden = true;
+    var all = document.querySelectorAll('.summary-sentence.active');
+    all.forEach(function (a) { a.classList.remove('active'); });
+  });
 
   function condenseChapter(index) {
     var li = chapterList.querySelector('li[data-index="' + index + '"]');
@@ -154,17 +188,17 @@
     state.chapterRatios[index] = ratio;
     var cached = state.chapterSummaries[index];
     if (cached && cached.ratio === ratio) {
-      summaryBox.innerHTML = escapeHtml(cached.summary);
+      renderSummary(summaryBox, cached);
       return;
     }
     summaryBox.innerHTML = '<div class="loading">浓缩中...</div>';
     btn.disabled = true;
     api('/api/books/' + state.bookId + '/chapters/' + index + '/summarize?ratio=' + ratio, { method: 'POST' })
       .then(function (data) {
-        state.chapterSummaries[index] = { ratio: ratio, summary: data.summary };
+        state.chapterSummaries[index] = { ratio: ratio, summary: data.summary, sentences: data.sentences };
         var head = li.querySelector('.chapter-head');
         if (head && head.textContent !== data.title) head.textContent = data.title;
-        summaryBox.innerHTML = escapeHtml(data.summary);
+        renderSummary(summaryBox, data);
       })
       .catch(function (err) {
         summaryBox.innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
