@@ -7,37 +7,37 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-inner">
-    <h1>书籍解读器</h1>
-    <p class="tagline">输入一本书，获得结构化解读与自由问答</p>
-  </div>
-</header>
+<main class="page">
+  <section class="main-card">
 
-<main class="layout">
-  <aside class="sidebar">
-    <div class="card upload-card" id="upload-card">
+    <header class="app-head">
+      <h1>书籍解读器</h1>
+      <p class="tagline">输入一本书，获得结构化解读与自由问答</p>
+    </header>
+
+    <div class="upload-bar">
       <input type="file" id="file-input" accept=".txt,.md,.pdf,.epub,.mobi,.azw3" hidden>
       <button class="btn primary" id="upload-btn">上传书籍</button>
       <button class="btn accent" id="interpret-btn" disabled>生成全书概述</button>
-      <p class="hint">支持 TXT / Markdown / PDF / EPUB / MOBI / AZW3，也可直接拖拽文件到此处</p>
-      <p class="status" id="upload-status"></p>
+    </div>
+    <p class="formats">支持 TXT / Markdown / PDF / EPUB / MOBI / AZW3，可直接拖入文件</p>
+    <p class="status" id="upload-status"></p>
+
+    <div class="drop-zone" id="empty-state">
+      <p class="dz-title">将书籍拖到此处</p>
+      <p class="dz-sub">或点击选择文件</p>
     </div>
 
-    <div class="card book-card" id="book-card" hidden>
+    <div class="book-card" id="book-card" hidden>
       <h2 id="book-title"></h2>
       <p class="meta" id="book-filename"></p>
       <h3>章节</h3>
       <ul id="chapter-list"></ul>
     </div>
-  </aside>
 
-  <section class="content">
-    <div class="card empty" id="empty-state">
-      <p>上传或拖入一本 TXT / Markdown / PDF / EPUB / MOBI / AZW3 书籍，开始生成解读报告</p>
-    </div>
+    <hr class="divider">
 
-    <div class="card report" id="report" hidden>
+    <div class="report" id="report" hidden>
       <div class="report-head">
         <h2>解读报告</h2>
         <div class="export-btns">
@@ -53,7 +53,7 @@
       <ul id="quotes"></ul>
     </div>
 
-    <div class="card qa" id="qa-card" hidden>
+    <div class="qa" id="qa-card" hidden>
       <h2>内容问答</h2>
       <div class="qa-input">
         <input type="text" id="question-input" placeholder="输入关于这本书的问题，例如：这本书的核心观点是什么？">
@@ -61,6 +61,7 @@
       </div>
       <div class="answer" id="answer"></div>
     </div>
+
   </section>
 </main>
 

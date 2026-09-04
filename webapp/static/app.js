@@ -332,6 +332,9 @@
 
   uploadBtn.addEventListener('click', function () { fileInput.click(); });
 
+  // 空状态拖放区本身也可点击选择文件
+  emptyState.addEventListener('click', function () { fileInput.click(); });
+
   fileInput.addEventListener('change', function () {
     var file = fileInput.files[0];
     if (!file) return;
