@@ -32,6 +32,8 @@ class FakeLLM(LLMClient):
             return "1. 观点一\n2. 观点二\n3. 观点三\n4. 观点四\n5. 观点五"
         if "全书概述" in prompt:
             return "这是一本关于自我提升的书籍，主旨是帮助读者成长。"
+        if "大白话" in prompt:
+            return "这一章用大白话讲：先把问题拆小，再一步步解决，就像搭积木一样。"
         if "章节" in prompt:
             return "本章摘要：这是本章的核心内容。"
         if "问题" in prompt:

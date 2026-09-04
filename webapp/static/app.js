@@ -4,7 +4,8 @@
     chapters: [],
     interpreting: false,
     chapterRatios: {},
-    chapterSummaries: {}
+    chapterSummaries: {},
+    chapterPlain: {}
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -68,6 +69,7 @@
     state.chapters = book.chapters;
     state.chapterRatios = {};
     state.chapterSummaries = {};
+    state.chapterPlain = {};
     bookTitle.textContent = book.title;
     bookFilename.textContent = book.filename;
     chapterList.innerHTML = '';
@@ -117,16 +119,27 @@
     ratioRow.appendChild(select);
     ratioRow.appendChild(btn);
 
+    var plainBtn = document.createElement('button');
+    plainBtn.className = 'btn plain small plain-btn';
+    plainBtn.textContent = '大白话讲解';
+    ratioRow.appendChild(plainBtn);
+
     var summaryBox = document.createElement('div');
     summaryBox.className = 'chapter-summary';
 
+    var plainBox = document.createElement('div');
+    plainBox.className = 'chapter-plain';
+    plainBox.hidden = true;
+
     expand.appendChild(ratioRow);
     expand.appendChild(summaryBox);
+    expand.appendChild(plainBox);
 
     select.addEventListener('change', function () {
       state.chapterRatios[index] = parseFloat(select.value);
     });
     btn.addEventListener('click', function () { condenseChapter(index); });
+    plainBtn.addEventListener('click', function () { explainPlain(index); });
 
     li.appendChild(head);
     li.appendChild(expand);
@@ -146,6 +159,14 @@
       renderSummary(summaryBox, cached);
     } else {
       summaryBox.innerHTML = '<div class="hint">点击「浓缩本章」生成浓缩内容</div>';
+    }
+    var plainBox = li.querySelector('.chapter-plain');
+    var cachedPlain = state.chapterPlain[index];
+    if (cachedPlain) {
+      renderPlain(plainBox, cachedPlain);
+    } else {
+      plainBox.hidden = true;
+      plainBox.innerHTML = '';
     }
   }
 
@@ -229,6 +250,47 @@
       .finally(function () {
         btn.disabled = false;
       });
+  }
+
+  function explainPlain(index) {
+    var li = chapterList.querySelector('li[data-index="' + index + '"]');
+    if (!li) return;
+    var btn = li.querySelector('.plain-btn');
+    var plainBox = li.querySelector('.chapter-plain');
+    var cached = state.chapterPlain[index];
+    if (cached) {
+      renderPlain(plainBox, cached);
+      return;
+    }
+    plainBox.hidden = false;
+    plainBox.innerHTML = '<div class="loading">讲解中...</div>';
+    btn.disabled = true;
+    api('/api/books/' + state.bookId + '/chapters/' + index + '/plain', { method: 'POST' })
+      .then(function (data) {
+        state.chapterPlain[index] = data.text;
+        var head = li.querySelector('.chapter-head');
+        if (head && head.textContent !== data.title) head.textContent = data.title;
+        renderPlain(plainBox, data.text);
+      })
+      .catch(function (err) {
+        plainBox.innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
+      })
+      .finally(function () {
+        btn.disabled = false;
+      });
+  }
+
+  function renderPlain(box, text) {
+    box.hidden = false;
+    box.innerHTML = '';
+    var label = document.createElement('div');
+    label.className = 'plain-label';
+    label.textContent = '大白话解读';
+    var body = document.createElement('div');
+    body.className = 'plain-body';
+    body.textContent = text;
+    box.appendChild(label);
+    box.appendChild(body);
   }
 
   function renderReport(interp) {

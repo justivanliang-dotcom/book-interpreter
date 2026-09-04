@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from book_interpreter.exporter import export
 from book_interpreter.interpreter import (
+    explain_chapter_plain,
     extract_chapter_titles,
     generate_overview,
     summarize_chapter_with_sources,
@@ -65,6 +66,11 @@ class ChapterSummarizeOut(BaseModel):
     title: str
     summary: str
     sentences: list[dict] = []
+
+
+class PlainOut(BaseModel):
+    title: str
+    text: str
 
 
 class RawOut(BaseModel):
@@ -163,6 +169,31 @@ def summarize_chapter_api(
         raise HTTPException(status_code=502, detail=str(e))
     chapter.summary = summary
     return ChapterSummarizeOut(title=chapter.title, summary=summary, sentences=sentences)
+
+
+@app.post("/api/books/{book_id}/chapters/{chapter_index}/plain", response_model=PlainOut)
+def explain_chapter_api(
+    book_id: str,
+    chapter_index: int,
+    llm: LLMClient = Depends(get_llm),
+) -> PlainOut:
+    """用初中生词汇对指定章节做通俗易懂的讲解。"""
+    record = _get_record(book_id)
+    book = record["book"]
+    if chapter_index < 0 or chapter_index >= len(book.chapters):
+        raise HTTPException(status_code=404, detail="章节不存在")
+    chapter = book.chapters[chapter_index]
+    if not chapter.content.strip():
+        return PlainOut(title=chapter.title, text="（本章无内容）")
+    if not record.get("titles_extracted"):
+        extract_chapter_titles(llm, book)
+        record["titles_extracted"] = True
+    try:
+        text = explain_chapter_plain(llm, chapter.title, chapter.content)
+    except LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    chapter.plain = text
+    return PlainOut(title=chapter.title, text=text)
 
 
 @app.post("/api/books/{book_id}/ask", response_model=AskOut)

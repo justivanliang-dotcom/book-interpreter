@@ -121,6 +121,42 @@ def test_summarize_chapter_llm_error():
         app.dependency_overrides[get_llm] = lambda: FakeLLM()
 
 
+def test_explain_plain():
+    book = _upload().json()
+    resp = client.post(f"/api/books/{book['id']}/chapters/0/plain")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["title"] == "第一章"
+    assert data["text"]
+    assert "大白话" in data["text"]
+
+
+def test_explain_plain_not_found():
+    book = _upload().json()
+    resp = client.post(f"/api/books/{book['id']}/chapters/99/plain")
+    assert resp.status_code == 404
+
+
+def test_explain_plain_empty_chapter():
+    content = "# 测试书\n\n## 第一章\n内容一\n\n## 第二章\n   "
+    book = _upload(content=content).json()
+    resp = client.post(f"/api/books/{book['id']}/chapters/1/plain")
+    assert resp.status_code == 200
+    assert resp.json()["text"] == "（本章无内容）"
+
+
+def test_explain_plain_llm_error():
+    app.dependency_overrides[get_llm] = lambda: FailingLLM()
+    try:
+        content = f"# 测试书\n\n## 第一章\n{'内容' * 100}\n\n## 第二章\n{'内容' * 100}"
+        book = _upload(content=content).json()
+        resp = client.post(f"/api/books/{book['id']}/chapters/0/plain")
+        assert resp.status_code == 502
+        assert "LLM_API_KEY" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides[get_llm] = lambda: FakeLLM()
+
+
 def test_interpret_book_not_found():
     resp = client.post("/api/books/nonexistent/interpret")
     assert resp.status_code == 404

@@ -146,6 +146,27 @@ def summarize_chapter_with_sources(
     return summary_text, sentences
 
 
+def explain_chapter_plain(llm: LLMClient, title: str, content: str) -> str:
+    """用初中生能懂的词汇对章节内容做通俗讲解。
+
+    讲解目标字数按原文长度自适应（100~500 字），与浓缩摘要互补。
+    """
+    target_words = min(500, max(100, len(content)))
+    lower = max(50, int(target_words * 0.8))
+    upper = int(target_words * 1.2)
+    system = "你是一位擅长把复杂道理讲得通俗易懂的老师，只用初中生能懂的词汇讲解书籍内容。"
+    prompt = (
+        f"请用大白话讲解下面的章节，让初中生也能轻松听懂。\n"
+        f"要求：\n"
+        f"1. 用简单常见的词汇，不用专业术语；必须用到的术语要先打个比方解释清楚。\n"
+        f"2. 像给同学讲故事一样，多用比喻和生活里的例子。\n"
+        f"3. 句子短一点，一口气能读完。\n"
+        f"4. 总字数约 {target_words} 字（允许在 {lower}~{upper} 字之间）。\n\n"
+        f"章节标题：{title}\n\n章节内容：\n{_truncate(content, 6000)}"
+    )
+    return llm.complete(prompt, system=system, max_tokens=min(target_words * 2, 8000))
+
+
 def extract_chapter_titles(llm: LLMClient, book: Book) -> None:
     """让 LLM 批量提取各章节准确标题，避免标题混入正文。
 

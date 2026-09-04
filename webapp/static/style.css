@@ -129,6 +129,33 @@ body {
   background: #fff;
 }
 .btn.primary.small { width: auto; padding: 0.35rem 0.8rem; font-size: 0.8rem; }
+.btn.plain.small {
+  width: auto;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  background: var(--accent2);
+  color: #fff;
+}
+.chapter-plain {
+  margin-top: 0.6rem;
+  background: rgba(201, 138, 61, 0.08);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+}
+.chapter-plain .plain-label {
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: var(--accent2);
+  margin-bottom: 0.3rem;
+}
+.chapter-plain .plain-body {
+  white-space: pre-wrap;
+  line-height: 1.8;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+.chapter-plain .loading { color: var(--muted); text-align: center; padding: 0.6rem 0; }
+.chapter-plain .error { color: #b3452f; }
 .chapter-summary {
   margin-top: 0.6rem;
   white-space: pre-wrap;

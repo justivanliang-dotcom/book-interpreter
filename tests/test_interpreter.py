@@ -5,6 +5,7 @@ from book_interpreter.interpreter import (
     _parse_summary_with_sources,
     _retrieve_context,
     _split_paragraphs,
+    explain_chapter_plain,
     extract_chapter_titles,
     generate_overview,
     interpret_book,
@@ -117,6 +118,24 @@ def test_summarize_chapter_full_returns_original(fake_llm):
     result = summarize_chapter(fake_llm, chapter.title, chapter.content, 1.0)
     assert result == chapter.content  # 100% 直接返回原文
     assert len(fake_llm.calls) == calls_before  # 不调用 LLM
+
+
+def test_explain_chapter_plain(fake_llm):
+    chapter = Chapter(title="测试章", content="内容" * 100, order=0)
+    text = explain_chapter_plain(fake_llm, chapter.title, chapter.content)
+    assert "大白话" in fake_llm.calls[-1]
+    assert "初中生" in fake_llm.calls[-1]
+    assert text == "这一章用大白话讲：先把问题拆小，再一步步解决，就像搭积木一样。"
+
+
+def test_explain_chapter_plain_target_words(fake_llm):
+    # 长章 → 目标 500 字上限
+    explain_chapter_plain(fake_llm, "长章", "内容" * 1000)
+    assert "约 500 字" in fake_llm.calls[-1]
+    assert "400~600" in fake_llm.calls[-1]
+    # 短章 → 目标 100 字下限
+    explain_chapter_plain(fake_llm, "短章", "内容" * 20)
+    assert "约 100 字" in fake_llm.calls[-1]
 
 
 def test_summarize_chapter_floor_100(fake_llm):

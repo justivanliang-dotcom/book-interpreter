@@ -13,6 +13,7 @@ class Chapter:
     content: str
     order: int
     summary: str = ""
+    plain: str = ""
 
 
 @dataclass
