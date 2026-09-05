@@ -35,7 +35,6 @@ def _build_summary_prompt(
     content: str,
     target_words: int,
     with_sources: bool = False,
-    retry_chars: int | None = None,
 ) -> str:
     shown = _truncate(content, 20000)
     src_chars = count_chars(shown)
@@ -58,12 +57,45 @@ def _build_summary_prompt(
             "请摘录最相关的一段连续原文，宁可摘录更长也不要截断。用以下标记分隔：\n"
             "【句】摘要句子1\n【源】原文摘录1\n【句】摘要句子2\n【源】原文摘录2\n"
         )
-    if retry_chars is not None:
-        prompt += (
-            f"\n\n注意：上次输出约 {retry_chars} 字，未达到目标字数。"
-            f"请重新输出，严格控制在 {lower}~{upper} 字之间。"
-        )
     return prompt + f"\n\n章节标题：{title}\n\n章节内容：\n{shown}"
+
+
+def _adjust_summary(
+    llm: LLMClient,
+    prev: str,
+    target_words: int,
+    max_tokens: int,
+    measure=None,
+    style_hint: str = "",
+) -> str:
+    """按当前字数补正浓缩结果：不足则续写补充，超出则精简重写。
+
+    measure 自定义字数统计函数（带原文引用的场景只统计摘要句）；
+    style_hint 用于要求续写内容保持指定格式。
+    """
+    measure = measure or count_chars
+    chars = measure(prev)
+    lower = max(50, int(target_words * 0.9))
+    upper = int(target_words * 1.1)
+    if chars < target_words:
+        remaining = target_words - chars
+        prompt = (
+            f"以下是已经生成的浓缩内容（约 {chars} 字），目标总字数约 {target_words} 字"
+            f"（需在 {lower}~{upper} 字之间），当前还差约 {remaining} 字。\n"
+            f"请直接续写补充约 {remaining} 字：继续展开论述、补充细节与例子，"
+            f"使补充后的总字数达到目标。不要修改或重复已有内容，只输出新增内容。"
+            f"{style_hint}\n\n已有内容：\n{prev}"
+        )
+        addition = llm.complete(prompt, max_tokens=max_tokens)
+        return prev + "\n" + addition
+    prompt = (
+        f"以下是已经生成的浓缩内容（约 {chars} 字），目标总字数约 {target_words} 字"
+        f"（需在 {lower}~{upper} 字之间），当前超出。\n"
+        f"请精简该内容，删除重复表述与次要细节，保留核心内容，"
+        f"使长度控制在 {lower}~{upper} 字之间。只输出精简后的完整内容。"
+        f"{style_hint}\n\n已有内容：\n{prev}"
+    )
+    return llm.complete(prompt, max_tokens=max_tokens)
 
 
 def summarize_chapter(
@@ -79,7 +111,7 @@ def summarize_chapter(
     上限为原文字数，下限为 100 字；max_words 可额外限制目标字数上限
     （用于报告等固定长度场景）。当目标字数达到原文字数时（如 100%），
     直接返回原文，不再调用 LLM。
-    输出后校验实际字数，偏差超过 10% 时带上次字数反馈重试一次。
+    输出后校验实际字数，偏差超过 10% 时续写补充或精简重写，最多补正两次。
     """
     src_chars = count_chars(_truncate(content, 20000))
     target_words = max(100, min(src_chars, int(src_chars * ratio)))
@@ -88,13 +120,11 @@ def summarize_chapter(
     if target_words >= src_chars:
         return content
     max_tokens = min(target_words * 2 + 400, 16000)
-    prompt = _build_summary_prompt(title, content, target_words)
-    raw = llm.complete(prompt, max_tokens=max_tokens)
-    if abs(count_chars(raw) - target_words) > target_words * 0.1:
-        raw = llm.complete(
-            _build_summary_prompt(title, content, target_words, retry_chars=count_chars(raw)),
-            max_tokens=max_tokens,
-        )
+    raw = llm.complete(_build_summary_prompt(title, content, target_words), max_tokens=max_tokens)
+    for _ in range(2):
+        if abs(count_chars(raw) - target_words) <= target_words * 0.1:
+            break
+        raw = _adjust_summary(llm, raw, target_words, max_tokens)
     return raw
 
 
@@ -155,26 +185,24 @@ def summarize_chapter_with_sources(
     context 为包含原文摘录的完整上下文，highlight 为其中直接关联的部分。
     当目标字数达到原文字数时（如 100%）直接返回原文。
     对含省略号或过短的原文摘录，用检索到的完整段落兜底替换。
-    输出后校验摘要句总字数，偏差超过 10% 时带反馈重试一次。
+    输出后校验摘要句总字数，偏差超过 10% 时续写补充或精简重写，最多补正两次。
     """
     src_chars = count_chars(_truncate(content, 20000))
     target_words = max(100, min(src_chars, int(src_chars * ratio)))
     if target_words >= src_chars:
         return content, [{"text": content, "source": content, "context": content, "highlight": content}]
     max_tokens = min(target_words * 2 + 400, 16000)
-    prompt = _build_summary_prompt(title, content, target_words, with_sources=True)
-    raw = llm.complete(prompt, max_tokens=max_tokens)
+    style_hint = "新增内容请继续使用【句】和【源】标记格式。"
+    measure = lambda r: count_chars("".join(s["text"] for s in _parse_summary_with_sources(r)))
+    raw = llm.complete(
+        _build_summary_prompt(title, content, target_words, with_sources=True), max_tokens=max_tokens
+    )
+    for _ in range(2):
+        if abs(measure(raw) - target_words) <= target_words * 0.1:
+            break
+        raw = _adjust_summary(llm, raw, target_words, max_tokens, measure=measure, style_hint=style_hint)
     sentences = _parse_summary_with_sources(raw)
     summary_text = "".join(s["text"] for s in sentences)
-    if sentences and abs(count_chars(summary_text) - target_words) > target_words * 0.1:
-        raw = llm.complete(
-            _build_summary_prompt(
-                title, content, target_words, with_sources=True, retry_chars=count_chars(summary_text)
-            ),
-            max_tokens=max_tokens,
-        )
-        sentences = _parse_summary_with_sources(raw)
-        summary_text = "".join(s["text"] for s in sentences)
     if not sentences:
         return raw, [{"text": raw, "source": "", "context": "", "highlight": ""}]
     for s in sentences:

@@ -1,7 +1,5 @@
 """解读器测试。"""
 
-import re
-
 from book_interpreter.interpreter import (
     _parse_list,
     _parse_summary_with_sources,
@@ -132,32 +130,33 @@ def test_summary_target_words():
     assert summary_target_words("短", 0.1) == 1
 
 
-class ShortThenLongLLM(FakeLLM):
-    """第一次浓缩输出过短，重试时输出恰好达标的文本。"""
+class ShortThenExtendedLLM(FakeLLM):
+    """初始浓缩输出过短，续写补正后达到目标。"""
 
     def __init__(self):
         super().__init__()
         self.condense_calls = 0
+        self.extend_calls = 0
 
     def complete(self, prompt, system="", max_tokens=2000):
         self.calls.append(prompt)
+        if "续写补充" in prompt:
+            self.extend_calls += 1
+            return "补充内容。" * 200  # 1000 字
         if "浓缩" in prompt and "【句】" not in prompt:
             self.condense_calls += 1
-            m = re.search(r"浓缩结果约 (\d+) 字", prompt)
-            n = int(m.group(1)) if m else 100
-            if self.condense_calls == 1:
-                return "太短" * 10  # 20 字，远低于目标
-            return "内容" * (n // 2)  # 恰好达标
+            return "太短" * 10  # 20 字，远低于目标
         return super().complete(prompt, system, max_tokens)
 
 
-def test_summarize_chapter_retries_when_too_short():
+def test_summarize_chapter_extends_when_too_short():
     chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
-    llm = ShortThenLongLLM()
+    llm = ShortThenExtendedLLM()
     result = summarize_chapter(llm, chapter.title, chapter.content, 0.5)  # 目标1000字
-    assert llm.condense_calls == 2  # 触发一次重试
-    assert count_chars(result) == 1000  # 重试后字数达标
-    assert "上次输出" in llm.calls[-1]  # 重试 prompt 带字数反馈
+    assert llm.condense_calls == 1  # 仅一次初始浓缩
+    assert llm.extend_calls == 1  # 字数不足触发一次续写补正
+    assert "续写补充" in llm.calls[1]
+    assert 900 <= count_chars(result) <= 1100  # 补正后字数达标
 
 
 def test_summarize_chapter_no_retry_when_on_target(fake_llm):
@@ -284,21 +283,34 @@ def test_parse_summary_with_sources_missing_source():
 
 
 class SourceLLM(FakeLLM):
+    """输出【句】【源】标记，且摘要句总字数恰好达标避免触发补正。"""
+
     def complete(self, prompt, system="", max_tokens=2000):
         if "【句】" in prompt:
-            return "【句】摘要句一。\n【源】原文句一。\n【句】摘要句二。\n【源】原文句二。\n"
+            import re
+
+            m = re.search(r"浓缩结果约 (\d+) 字", prompt)
+            n = int(m.group(1)) if m else 100
+            fill = max(0, n - 10)
+            return (
+                f"【句】摘要句一。{'内' * fill}\n"
+                f"【源】原文句一。{'内' * fill}\n"
+                f"【句】摘要句二。\n"
+                f"【源】原文句二。\n"
+            )
         return super().complete(prompt, system, max_tokens)
 
 
 def test_summarize_chapter_with_sources():
     chapter = Chapter(title="测试章", content="内容" * 1000, order=0)
     summary, sentences = summarize_chapter_with_sources(SourceLLM(), chapter.title, chapter.content, 0.1)
-    assert summary == "摘要句一。摘要句二。"
     assert len(sentences) == 2
-    assert sentences[0]["text"] == "摘要句一。"
-    assert sentences[0]["source"] == "原文句一。"
+    assert sentences[0]["text"].startswith("摘要句一。")
+    assert sentences[0]["source"].startswith("原文句一。")
     assert sentences[1]["text"] == "摘要句二。"
     assert sentences[1]["source"] == "原文句二。"
+    assert summary.startswith("摘要句一。")
+    assert summary.endswith("摘要句二。")
 
 
 class NoMarkupLLM(FakeLLM):
@@ -360,11 +372,18 @@ def test_retrieve_context_includes_neighbor_paragraphs():
 
 
 class EllipsisLLM(FakeLLM):
+    """输出含省略号的过短原文摘录，且摘要句总字数达标避免触发补正。"""
+
     def complete(self, prompt, system="", max_tokens=2000):
         if "【句】" in prompt:
+            import re
+
+            m = re.search(r"浓缩结果约 (\d+) 字", prompt)
+            n = int(m.group(1)) if m else 100
+            fill = max(0, n - 35)
             return (
-                "【句】人工智能正在深刻改变我们的世界，这场变革比工业革命更加深远。\n"
-                "【源】原文开头……原文结尾。\n"
+                f"【句】人工智能正在深刻改变我们的世界，这场变革比工业革命更加深远。{'内' * fill}\n"
+                f"【源】原文开头……原文结尾。\n"
             )
         return super().complete(prompt, system, max_tokens)
 
