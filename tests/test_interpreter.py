@@ -222,23 +222,32 @@ def test_explain_chapter_plain_explicit_target_words(fake_llm):
 
 
 class LongCondenseLLM(FakeLLM):
-    """浓缩输出足够长，避免讲解目标字数被内容长度截断。"""
+    """浓缩输出恰好达标（1500 字），避免触发补正干扰讲解字数断言。"""
 
     def complete(self, prompt, system="", max_tokens=2000):
         if "大白话" in prompt:
             return super().complete(prompt, system, max_tokens)
-        return "浓缩内容。" * 200  # 1000 字
+        return "浓缩内容。" * 300  # 1500 字
 
 
 def test_explain_chapter_by_ratio_target_grows_with_ratio():
     llm = LongCondenseLLM()
     chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
-    # 75% → 约 625 字
+    # 75% → 原文 2000 字 × 0.75 = 约 1500 字，与浓缩目标一致
     explain_chapter_by_ratio(llm, chapter.title, chapter.content, 0.75)
-    assert "约 625 字" in llm.calls[-1]
-    # 100% → 约 800 字，篇幅随比例单调递增
+    assert "约 1500 字" in llm.calls[-1]
+    # 100% → 约 2000 字，讲解全文，篇幅随比例单调递增
     explain_chapter_by_ratio(llm, chapter.title, chapter.content, 1.0)
-    assert "约 800 字" in llm.calls[-1]
+    assert "约 2000 字" in llm.calls[-1]
+
+
+def test_explain_chapter_by_ratio_target_matches_condense():
+    """讲解目标字数与浓缩目标字数一致（同为 原文可见字数 × 比例）。"""
+    llm = LongCondenseLLM()
+    chapter = Chapter(title="测试章", content="内容" * 1000, order=0)  # 2000字
+    explain_chapter_by_ratio(llm, chapter.title, chapter.content, 0.5)
+    assert "约 1000 字" in llm.calls[-1]
+    assert summary_target_words(chapter.content, 0.5) == 1000
 
 
 def test_summarize_chapter_floor_100(fake_llm):

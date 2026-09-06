@@ -255,11 +255,12 @@ def explain_chapter_by_ratio(
 ) -> str:
     """先按比例浓缩章节，再用大白话讲解浓缩结果。
 
-    讲解篇幅随比例单调递增（约 170~800 字）：比例越大讲解越详细，
+    讲解目标字数与浓缩保持一致：原文可见字数 × 比例
+    （下限 100，上限原文长度），比例越大讲解越详细；
     ratio 为 1.0 时浓缩直接返回原文，讲解全文。
     """
     condensed = summarize_chapter(llm, title, content, ratio)
-    target_words = int(100 + 700 * ratio)
+    target_words = summary_target_words(content, ratio)
     return explain_chapter_plain(llm, title, condensed, target_words=target_words)
 
 
