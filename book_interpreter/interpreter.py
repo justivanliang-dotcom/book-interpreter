@@ -41,11 +41,12 @@ def _build_summary_prompt(
     lower = max(50, int(target_words * 0.9))
     upper = int(target_words * 1.1)
     prompt = (
-        f"请将以下书籍章节浓缩为一段中文摘要。\n"
+        f"请将以下书籍章节浓缩为中文摘要。\n"
         f"原文约 {src_chars} 字（不含空格与换行）。\n"
         f"输出要求：浓缩结果约 {target_words} 字，必须控制在 {lower}~{upper} 字之间"
         f"（按不含空格与换行的字符统计）。这是按比例浓缩而非简略概括："
         f"请覆盖核心内容并充分展开细节与例子，字数不足就补充内容，超了就精简。\n"
+        f"按逻辑分为若干段落，段落之间用空行分隔，不要从头到尾连成一段。\n"
         f"输出前请自查字数。"
     )
     if with_sources:
@@ -98,6 +99,31 @@ def _adjust_summary(
     return llm.complete(prompt, max_tokens=max_tokens)
 
 
+def _ensure_paragraphs(text: str, min_chars: int = 160) -> str:
+    """浓缩结果兜底分段：LLM 未分段且文本较长时，按句切分为若干段落。
+
+    已有空行分隔的文本或过短文本原样返回；切分后仍只有一段则保持原样。
+    按不含空行的可见字符计数，分段不影响字数统计。
+    """
+    if "\n\n" in text or len(text) < min_chars:
+        return text
+    sentences = [s.strip() for s in re.split(r"(?<=[。！？；])", text) if s.strip()]
+    if len(sentences) < 2:
+        return text
+    per = max(40, len(text) // 4)
+    paras: list[str] = []
+    cur = ""
+    for s in sentences:
+        if cur and len(cur) + len(s) > per:
+            paras.append(cur)
+            cur = s
+        else:
+            cur += s
+    if cur:
+        paras.append(cur)
+    return "\n\n".join(paras) if len(paras) > 1 else text
+
+
 def summarize_chapter(
     llm: LLMClient,
     title: str,
@@ -120,12 +146,13 @@ def summarize_chapter(
     if target_words >= src_chars:
         return content
     max_tokens = min(target_words * 2 + 400, 16000)
+    style_hint = "新增内容请按逻辑分段，段落之间用空行分隔。"
     raw = llm.complete(_build_summary_prompt(title, content, target_words), max_tokens=max_tokens)
     for _ in range(2):
         if abs(count_chars(raw) - target_words) <= target_words * 0.1:
             break
-        raw = _adjust_summary(llm, raw, target_words, max_tokens)
-    return raw
+        raw = _adjust_summary(llm, raw, target_words, max_tokens, style_hint=style_hint)
+    return _ensure_paragraphs(raw)
 
 
 def _parse_summary_with_sources(text: str) -> list[dict]:
@@ -237,12 +264,12 @@ def explain_chapter_plain(
     target_words = max(100, min(target_words, max(100, len(content))))
     lower = max(50, int(target_words * 0.8))
     upper = int(target_words * 1.2)
-    system = "你是一位擅长把复杂道理讲得通俗易懂的老师，只用初中生能懂的词汇讲解书籍内容。"
+    system = "你是一位擅长把复杂道理讲得通俗易懂的讲解者，用任何人都能听懂的日常语言解读书籍内容。"
     prompt = (
-        f"请用大白话讲解下面的章节，让初中生也能轻松听懂。\n"
+        f"请用大白话讲解下面的章节，让完全不了解这本书的普通读者也能轻松读懂。\n"
         f"要求：\n"
         f"1. 用简单常见的词汇，不用专业术语；必须用到的术语要先打个比方解释清楚。\n"
-        f"2. 像给同学讲故事一样，多用比喻和生活里的例子。\n"
+        f"2. 多用比喻和生活中的例子，像平时聊天一样自然。\n"
         f"3. 句子短一点，一口气能读完。\n"
         f"4. 总字数约 {target_words} 字（允许在 {lower}~{upper} 字之间）。\n\n"
         f"章节标题：{title}\n\n章节内容：\n{_truncate(content, 6000)}"

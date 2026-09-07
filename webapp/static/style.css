@@ -206,6 +206,29 @@ body {
 }
 .chapter-summary .loading { color: var(--muted); text-align: center; padding: 0.8rem 0; }
 .chapter-summary .error { color: #b3452f; }
+.progress-wrap { margin: 0.4rem 0 0.2rem; }
+.progress-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(201,138,61,0.15);
+  overflow: hidden;
+}
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 35%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: progress-slide 1.1s ease-in-out infinite;
+}
+@keyframes progress-slide {
+  0% { left: -35%; }
+  100% { left: 100%; }
+}
 .summary-meta {
   font-size: 0.75rem;
   color: var(--muted);

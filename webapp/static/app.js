@@ -127,11 +127,19 @@
     var summaryBox = document.createElement('div');
     summaryBox.className = 'chapter-summary';
 
+    var progressWrap = document.createElement('div');
+    progressWrap.className = 'progress-wrap';
+    progressWrap.hidden = true;
+    var progressBar = document.createElement('div');
+    progressBar.className = 'progress-bar';
+    progressWrap.appendChild(progressBar);
+
     var plainBox = document.createElement('div');
     plainBox.className = 'chapter-plain';
     plainBox.hidden = true;
 
     expand.appendChild(ratioRow);
+    expand.appendChild(progressWrap);
     expand.appendChild(summaryBox);
     expand.appendChild(plainBox);
 
@@ -239,6 +247,7 @@
     var select = li.querySelector('.chapter-ratio');
     var btn = li.querySelector('.summarize-btn');
     var summaryBox = li.querySelector('.chapter-summary');
+    var progressWrap = li.querySelector('.progress-wrap');
     var ratio = parseFloat(select.value);
     state.chapterRatios[index] = ratio;
     var cached = state.chapterSummaries[index];
@@ -248,6 +257,7 @@
     }
     summaryBox.innerHTML = '<div class="loading">浓缩中...</div>';
     btn.disabled = true;
+    progressWrap.hidden = false;
     api('/api/books/' + state.bookId + '/chapters/' + index + '/summarize?ratio=' + ratio, { method: 'POST' })
       .then(function (data) {
         state.chapterSummaries[index] = {
@@ -266,6 +276,7 @@
       })
       .finally(function () {
         btn.disabled = false;
+        progressWrap.hidden = true;
       });
   }
 
@@ -276,6 +287,7 @@
     var ratio = parseFloat(select.value);
     var btn = li.querySelector('.plain-btn');
     var plainBox = li.querySelector('.chapter-plain');
+    var progressWrap = li.querySelector('.progress-wrap');
     var cacheKey = index + ':' + ratio;
     var cached = state.chapterPlain[cacheKey];
     if (cached) {
@@ -285,6 +297,7 @@
     plainBox.hidden = false;
     plainBox.innerHTML = '<div class="loading">讲解中...</div>';
     btn.disabled = true;
+    progressWrap.hidden = false;
     api('/api/books/' + state.bookId + '/chapters/' + index + '/plain?ratio=' + ratio, { method: 'POST' })
       .then(function (data) {
         state.chapterPlain[cacheKey] = data.text;
@@ -297,6 +310,7 @@
       })
       .finally(function () {
         btn.disabled = false;
+        progressWrap.hidden = true;
       });
   }
 

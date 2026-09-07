@@ -1,6 +1,7 @@
 """解读器测试。"""
 
 from book_interpreter.interpreter import (
+    _ensure_paragraphs,
     _parse_list,
     _parse_summary_with_sources,
     _retrieve_context,
@@ -166,6 +167,26 @@ def test_summarize_chapter_no_retry_when_on_target(fake_llm):
     # FakeLLM 返回恰好达标的文本，不应触发重试
     assert len(fake_llm.calls) == calls_before + 1
     assert count_chars(result) == 1000
+    # 浓缩 prompt 明确要求分段，避免整篇一个段落
+    assert "按逻辑分为若干段落" in fake_llm.calls[-1]
+
+
+def test_ensure_paragraphs():
+    # 长文本无空行 → 按句切分为多段
+    text = "第一点内容。" * 10 + "第二点内容。" * 10 + "第三点内容。" * 10
+    out = _ensure_paragraphs(text)
+    assert "\n\n" in out
+    assert out.count("\n\n") >= 2
+    assert count_chars(out) == count_chars(text)  # 分段不影响字数
+    # 已有空行分隔 → 原样返回
+    already = "第一段。\n\n第二段。"
+    assert _ensure_paragraphs(already) == already
+    # 过短文本 → 原样返回
+    short = "很短的内容。"
+    assert _ensure_paragraphs(short) == short
+    # 单句长文本 → 保持原样
+    one = "这是一个很长但没有句号的句子" * 30
+    assert _ensure_paragraphs(one) == one
 
 
 def test_summarize_chapter_full_returns_original(fake_llm):
@@ -180,7 +201,9 @@ def test_explain_chapter_plain(fake_llm):
     chapter = Chapter(title="测试章", content="内容" * 100, order=0)
     text = explain_chapter_plain(fake_llm, chapter.title, chapter.content)
     assert "大白话" in fake_llm.calls[-1]
-    assert "初中生" in fake_llm.calls[-1]
+    assert "普通读者" in fake_llm.calls[-1]
+    assert "初中生" not in fake_llm.calls[-1]
+    assert "同学" not in fake_llm.calls[-1]
     assert text == "这一章用大白话讲：先把问题拆小，再一步步解决，就像搭积木一样。"
 
 
