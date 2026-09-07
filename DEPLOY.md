@@ -49,7 +49,11 @@ git clone <你的仓库地址> && cd 书籍解读
 
 # 2. 配置环境变量（.env 会被 docker-compose 读取）
 cp .env.example .env
-# 编辑 .env：填入 LLM_API_KEY、ACCESS_TOKEN（重要！公网必须设置口令）
+# 编辑 .env，必填三项：
+#   LLM_API_KEY=你的密钥
+#   LLM_BASE_URL=https://api.deepseek.com/v1   ← 用 DeepSeek 必须设置，默认是 openai.com（国内不可达会超时）
+#   LLM_MODEL=deepseek-chat
+#   ACCESS_TOKEN=你的访问口令（公网必须设置！）
 
 # 3. 构建并启动
 docker compose up -d --build
@@ -90,3 +94,12 @@ docker compose up -d --build   # 更新代码后重新部署
 - `ACCESS_TOKEN` 务必设置一个足够随机的口令（建议 16 位以上），它直接保护你的 LLM 费用。
 - 服务端不持久化上传的书籍内容（仅内存，重启即清空），适合分享；如需保存请自行扩展。
 - 书籍版权：请只分享你有权传播的书籍，或明确告知使用者上传自己的电子书。
+
+## 六、常见问题排查
+
+| 现象 | 原因 | 解决 |
+| --- | --- | --- |
+| 浓缩/讲解/问答一直转圈或超时 | 没设 `LLM_BASE_URL`，请求发到 api.openai.com（国内不可达） | 设置 `LLM_BASE_URL=https://api.deepseek.com/v1` + `LLM_MODEL=deepseek-chat` 并重启 |
+| 上传报 500 / 接口崩溃 | `ACCESS_TOKEN` 设成了中文或非 ASCII 字符，鉴权比较函数不支持 | 口令只用字母数字（如 `MyBook2026`） |
+| 页面不弹口令框 | `ACCESS_TOKEN` 为空（未设置）或值无效 | 检查 `.env` 中 `ACCESS_TOKEN` 是否真实生效 |
+| 输入口令后仍 401 | 口令不一致 | 确认与 `.env` 完全一致，注意空格 |
