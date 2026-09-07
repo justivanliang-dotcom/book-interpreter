@@ -156,20 +156,36 @@ def summarize_chapter(
 
 
 def _parse_summary_with_sources(text: str) -> list[dict]:
-    """解析带原文引用的浓缩结果，返回 [{text, source}, ...]。"""
+    """解析带原文引用的浓缩结果，返回 [{text, source, para}, ...]。
+
+    para 为段落序号（0 起）：LLM 输出中的空行表示段落分隔；
+    若全文未用空行分段且句子足够多，按句数均分为若干段，保证前端展示分段。
+    """
     sentences: list[dict] = []
     current: dict | None = None
+    para = 0
     for line in text.splitlines():
+        if not line.strip():
+            if current and current.get("text"):
+                sentences.append(current)
+                current = None
+            para += 1
+            continue
         line = line.strip()
         if line.startswith("【句】"):
             if current and current.get("text"):
                 sentences.append(current)
-            current = {"text": line[len("【句】"):].strip(), "source": ""}
+            current = {"text": line[len("【句】"):].strip(), "source": "", "para": para}
         elif line.startswith("【源】") and current is not None:
             current["source"] = line[len("【源】"):].strip()
     if current and current.get("text"):
         sentences.append(current)
-    return [s for s in sentences if s["text"]]
+    out = [s for s in sentences if s["text"]]
+    if len(out) >= 4 and len({s["para"] for s in out}) == 1:
+        per = len(out) // 4
+        for i, s in enumerate(out):
+            s["para"] = min(i // per, 3)
+    return out
 
 
 def _split_paragraphs(text: str) -> list[str]:

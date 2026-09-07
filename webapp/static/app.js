@@ -274,7 +274,13 @@
     }
     var sentences = data.sentences;
     if (sentences && sentences.length) {
+      var lastPara = null;
       sentences.forEach(function (s) {
+        if (lastPara !== null && s.para !== lastPara) {
+          container.appendChild(document.createElement('br'));
+          container.appendChild(document.createElement('br'));
+        }
+        lastPara = s.para;
         var span = document.createElement('span');
         span.className = 'summary-sentence';
         span.textContent = s.text;

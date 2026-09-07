@@ -303,15 +303,44 @@ def test_parse_summary_with_sources():
         "【源】这是第二句对应的原文。\n"
     )
     sentences = _parse_summary_with_sources(text)
-    assert sentences == [
-        {"text": "这是第一句摘要。", "source": "这是第一句对应的原文。"},
-        {"text": "这是第二句摘要。", "source": "这是第二句对应的原文。"},
-    ]
+    assert len(sentences) == 2
+    assert sentences[0]["text"] == "这是第一句摘要。"
+    assert sentences[0]["source"] == "这是第一句对应的原文。"
+    assert sentences[1]["text"] == "这是第二句摘要。"
+    assert sentences[1]["source"] == "这是第二句对应的原文。"
+
+
+def test_parse_summary_with_sources_paragraphs():
+    """LLM 输出中的空行被解析为段落分隔（para 段号递增）。"""
+    text = (
+        "【句】第一段句子一。\n"
+        "【源】原文一。\n"
+        "【句】第一段句子二。\n"
+        "【源】原文二。\n"
+        "\n"
+        "【句】第二段句子。\n"
+        "【源】原文三。\n"
+    )
+    sentences = _parse_summary_with_sources(text)
+    assert sentences[0]["para"] == 0
+    assert sentences[1]["para"] == 0
+    assert sentences[2]["para"] == 1
+
+
+def test_parse_summary_with_sources_auto_split_paragraphs():
+    """LLM 未用空行分段时，多句自动均分为若干段落。"""
+    text = "".join(f"【句】第{i}句内容。\n【源】原文{i}。\n" for i in range(8))
+    sentences = _parse_summary_with_sources(text)
+    paras = {s["para"] for s in sentences}
+    assert len(paras) > 1  # 自动分了段
+    # 段号单调不减
+    vals = [s["para"] for s in sentences]
+    assert vals == sorted(vals)
 
 
 def test_parse_summary_with_sources_missing_source():
     sentences = _parse_summary_with_sources("【句】只有摘要没有原文。\n")
-    assert sentences == [{"text": "只有摘要没有原文。", "source": ""}]
+    assert sentences == [{"text": "只有摘要没有原文。", "source": "", "para": 0}]
 
 
 class SourceLLM(FakeLLM):
