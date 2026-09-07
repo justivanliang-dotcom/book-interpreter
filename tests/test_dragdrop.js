@@ -61,7 +61,13 @@ function fetchMock() {
 }
 class FormDataMock { append() {} }
 
-const context = { document: documentMock, fetch: fetchMock, FormData: FormDataMock, console };
+const localStorageMock = {
+  _data: {},
+  getItem(key) { return key in this._data ? this._data[key] : null; },
+  setItem(key, val) { this._data[key] = String(val); },
+};
+
+const context = { document: documentMock, fetch: fetchMock, FormData: FormDataMock, localStorage: localStorageMock, console };
 vm.createContext(context);
 vm.runInContext(src, context, { filename: 'app.js' });
 

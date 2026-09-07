@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 
 from book_interpreter.llm import LLMError
 from tests.conftest import FakeLLM, simple_pdf
-from webapp.main import _books, app, get_llm
+from webapp.main import _books, _plain_cache, _summary_cache, app, get_llm
+from webapp.ratelimit import limiter
 
 client = TestClient(app)
 app.dependency_overrides[get_llm] = lambda: FakeLLM()
@@ -31,8 +32,14 @@ class CountingLLM(FakeLLM):
 @pytest.fixture(autouse=True)
 def clear_books():
     _books.clear()
+    _summary_cache.clear()
+    _plain_cache.clear()
+    limiter.reset()
     yield
     _books.clear()
+    _summary_cache.clear()
+    _plain_cache.clear()
+    limiter.reset()
 
 
 def _upload(title="测试书", content=None):
@@ -277,6 +284,81 @@ def test_interpret_llm_error():
         resp = client.post(f"/api/books/{book['id']}/interpret")
         assert resp.status_code == 502
         assert "LLM_API_KEY" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides[get_llm] = lambda: FakeLLM()
+
+
+def test_auth_required_when_token_set(monkeypatch):
+    monkeypatch.setenv("ACCESS_TOKEN", "secret123")
+    # 无口令 → 401
+    resp = client.post("/api/books", files={"file": ("b.md", "# 书", "text/markdown")})
+    assert resp.status_code == 401
+    assert "口令" in resp.json()["detail"]
+    # verify 端点：错误口令 401，正确口令 200
+    assert client.post("/api/auth/verify", json={"token": "wrong"}).status_code == 401
+    assert client.post("/api/auth/verify", json={"token": "secret123"}).status_code == 200
+    # 正确口令放行
+    resp = client.post(
+        "/api/books",
+        headers={"X-Access-Token": "secret123"},
+        files={"file": ("b.md", "# 书", "text/markdown")},
+    )
+    assert resp.status_code == 200
+
+
+def test_auth_not_required_when_token_unset(monkeypatch):
+    monkeypatch.delenv("ACCESS_TOKEN", raising=False)
+    resp = _upload()
+    assert resp.status_code == 200
+
+
+def test_rate_limit_429():
+    limiter.per_minute = 2
+    try:
+        codes = []
+        for _ in range(4):
+            resp = client.get("/api/books/nonexistent/raw")
+            codes.append(resp.status_code)
+        # 前 2 次放行（404 是正常业务响应），第 3 次起被限流
+        assert codes[0] == 404
+        assert codes[1] == 404
+        assert codes[2] == 429
+        assert codes[3] == 429
+        assert "频繁" in client.get("/api/books/nonexistent/raw").json()["detail"]
+    finally:
+        limiter.reset()
+
+
+def test_summarize_cache_hits():
+    counting = CountingLLM()
+    app.dependency_overrides[get_llm] = lambda: counting
+    try:
+        book = _upload().json()
+        url = f"/api/books/{book['id']}/chapters/0/summarize?ratio=0.25"
+        r1 = client.post(url)
+        assert r1.status_code == 200
+        n1 = len(counting.prompts)
+        r2 = client.post(url)
+        assert r2.status_code == 200
+        assert len(counting.prompts) == n1  # 第二次命中缓存，不调用 LLM
+        assert r2.json()["summary"] == r1.json()["summary"]
+    finally:
+        app.dependency_overrides[get_llm] = lambda: FakeLLM()
+
+
+def test_plain_cache_hits():
+    counting = CountingLLM()
+    app.dependency_overrides[get_llm] = lambda: counting
+    try:
+        book = _upload().json()
+        url = f"/api/books/{book['id']}/chapters/0/plain?ratio=0.5"
+        r1 = client.post(url)
+        assert r1.status_code == 200
+        n1 = len(counting.prompts)
+        r2 = client.post(url)
+        assert r2.status_code == 200
+        assert len(counting.prompts) == n1  # 第二次命中缓存
+        assert r2.json()["text"] == r1.json()["text"]
     finally:
         app.dependency_overrides[get_llm] = lambda: FakeLLM()
 

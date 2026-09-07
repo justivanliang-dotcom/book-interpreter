@@ -1,0 +1,15 @@
+services:
+  book-interpreter:
+    build: .
+    container_name: book-interpreter
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      # 公网部署务必设置访问口令
+      ACCESS_TOKEN: ${ACCESS_TOKEN:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-30}
+      DAILY_LLM_LIMIT: ${DAILY_LLM_LIMIT:-100}

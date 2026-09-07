@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hmac
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -25,6 +27,7 @@ from book_interpreter.llm import LLMClient, LLMError
 from book_interpreter.loaders import SUPPORTED_EXTENSIONS, UnsupportedFormatError, extract_text
 from book_interpreter.parser import parse_book
 from book_interpreter.qa import answer_question
+from webapp.ratelimit import limiter
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -32,6 +35,28 @@ app = FastAPI(title="书籍解读器")
 
 # 内存存储：book_id -> 记录
 _books: dict[str, dict[str, Any]] = {}
+# 服务端 LLM 结果缓存：键为 (book_id, chapter_index, ratio)
+_summary_cache: dict[tuple[str, int, float], dict[str, Any]] = {}
+_plain_cache: dict[tuple[str, int, float], str] = {}
+
+
+def _get_access_token() -> str:
+    """公网部署的访问口令，未配置则不启用鉴权。"""
+    return os.environ.get("ACCESS_TOKEN", "")
+
+
+@app.middleware("http")
+async def guard(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path != "/api/auth/verify":
+        token = _get_access_token()
+        if token and not hmac.compare_digest(request.headers.get("x-access-token", ""), token):
+            return JSONResponse(status_code=401, content={"detail": "请输入访问口令"})
+    if path.startswith("/api/"):
+        ip = request.client.host if request.client else "unknown"
+        if not limiter.allow(ip, path):
+            return JSONResponse(status_code=429, content={"detail": "请求过于频繁，请稍后再试"})
+    return await call_next(request)
 
 
 def get_llm() -> LLMClient:
@@ -90,6 +115,19 @@ def _get_record(book_id: str) -> dict[str, Any]:
     if record is None:
         raise HTTPException(status_code=404, detail="书籍不存在")
     return record
+
+
+class AuthIn(BaseModel):
+    token: str
+
+
+@app.post("/api/auth/verify")
+def verify_auth(payload: AuthIn) -> dict:
+    """校验访问口令，前端验证通过后保存 token 用于后续请求。"""
+    token = _get_access_token()
+    if not token or hmac.compare_digest(payload.token, token):
+        return {"ok": True}
+    raise HTTPException(status_code=401, detail="访问口令错误")
 
 
 @app.post("/api/books", response_model=BookOut)
@@ -171,6 +209,10 @@ def summarize_chapter_api(
     chapter = book.chapters[chapter_index]
     if not chapter.content.strip():
         return ChapterSummarizeOut(title=chapter.title, summary="（本章无内容）")
+    cache_key = (book_id, chapter_index, ratio)
+    cached = _summary_cache.get(cache_key)
+    if cached is not None:
+        return ChapterSummarizeOut(**cached)
     if not record.get("titles_extracted"):
         extract_chapter_titles(llm, book)
         record["titles_extracted"] = True
@@ -179,13 +221,15 @@ def summarize_chapter_api(
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
     chapter.summary = summary
-    return ChapterSummarizeOut(
-        title=chapter.title,
-        summary=summary,
-        sentences=sentences,
-        word_count=count_chars(summary),
-        target_words=summary_target_words(chapter.content, ratio),
-    )
+    result = {
+        "title": chapter.title,
+        "summary": summary,
+        "sentences": sentences,
+        "word_count": count_chars(summary),
+        "target_words": summary_target_words(chapter.content, ratio),
+    }
+    _summary_cache[cache_key] = result
+    return ChapterSummarizeOut(**result)
 
 
 @app.post("/api/books/{book_id}/chapters/{chapter_index}/plain", response_model=PlainOut)
@@ -203,6 +247,10 @@ def explain_chapter_api(
     chapter = book.chapters[chapter_index]
     if not chapter.content.strip():
         return PlainOut(title=chapter.title, text="（本章无内容）")
+    cache_key = (book_id, chapter_index, ratio)
+    cached = _plain_cache.get(cache_key)
+    if cached is not None:
+        return PlainOut(title=chapter.title, text=cached)
     if not record.get("titles_extracted"):
         extract_chapter_titles(llm, book)
         record["titles_extracted"] = True
@@ -211,6 +259,7 @@ def explain_chapter_api(
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
     chapter.plain = text
+    _plain_cache[cache_key] = text
     return PlainOut(title=chapter.title, text=text)
 
 

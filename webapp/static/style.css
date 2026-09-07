@@ -234,6 +234,35 @@ body {
   color: var(--muted);
   margin-bottom: 0.4rem;
 }
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.auth-card {
+  width: min(320px, 88vw);
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  padding: 1.4rem 1.4rem 1.2rem;
+}
+.auth-title { font-weight: 600; margin-bottom: 0.8rem; }
+.auth-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  outline: none;
+}
+.auth-input:focus { border-color: var(--accent); }
+.auth-error { color: #b3452f; font-size: 0.78rem; margin-top: 0.4rem; }
+.auth-row { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.9rem; }
 .summary-sentence {
   cursor: pointer;
   border-radius: 4px;

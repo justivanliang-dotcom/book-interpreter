@@ -44,11 +44,20 @@
   }
 
   async function api(url, options) {
+    options = options || {};
+    options.headers = Object.assign({}, options.headers, {
+      'X-Access-Token': localStorage.getItem('book_interpreter_token') || ''
+    });
     var resp;
     try {
       resp = await fetch(url, options);
     } catch (e) {
       throw new Error('网络连接失败，请检查服务是否运行或网络是否正常');
+    }
+    if (resp.status === 401 && url.indexOf('/api/auth/verify') === -1) {
+      var authed = await ensureToken();
+      if (authed) return api(url, options);
+      throw new Error('访问口令不正确');
     }
     if (!resp.ok) {
       var detail = '';
@@ -62,6 +71,80 @@
       throw new Error(detail || ('请求失败（HTTP ' + resp.status + '）'));
     }
     return resp.json();
+  }
+
+  var authOverlay = null;
+  function ensureToken() {
+    return new Promise(function (resolve) {
+      if (authOverlay) {
+        resolve(false);
+        return;
+      }
+      authOverlay = document.createElement('div');
+      authOverlay.className = 'auth-overlay';
+      var card = document.createElement('div');
+      card.className = 'auth-card';
+      var title = document.createElement('div');
+      title.className = 'auth-title';
+      title.textContent = '请输入访问口令';
+      var input = document.createElement('input');
+      input.type = 'password';
+      input.className = 'auth-input';
+      input.placeholder = '访问口令';
+      var error = document.createElement('div');
+      error.className = 'auth-error';
+      error.hidden = true;
+      var row = document.createElement('div');
+      row.className = 'auth-row';
+      var cancel = document.createElement('button');
+      cancel.className = 'btn ghost small';
+      cancel.textContent = '取消';
+      var confirm = document.createElement('button');
+      confirm.className = 'btn primary small';
+      confirm.textContent = '进入';
+      row.appendChild(cancel);
+      row.appendChild(confirm);
+      card.appendChild(title);
+      card.appendChild(input);
+      card.appendChild(error);
+      card.appendChild(row);
+      authOverlay.appendChild(card);
+      document.body.appendChild(authOverlay);
+      input.focus();
+
+      function finish(ok) {
+        document.body.removeChild(authOverlay);
+        authOverlay = null;
+        resolve(ok);
+      }
+      function submit() {
+        var token = input.value.trim();
+        if (!token) return;
+        fetch('/api/auth/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token })
+        }).then(function (r) {
+          if (r.ok) {
+            localStorage.setItem('book_interpreter_token', token);
+            finish(true);
+          } else {
+            error.textContent = '口令错误，请重新输入';
+            error.hidden = false;
+            input.value = '';
+            input.focus();
+          }
+        }).catch(function () {
+          error.textContent = '验证失败，请检查网络';
+          error.hidden = false;
+        });
+      }
+      confirm.addEventListener('click', submit);
+      cancel.addEventListener('click', function () { finish(false); });
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') submit();
+      });
+    });
   }
 
   function renderBook(book) {
