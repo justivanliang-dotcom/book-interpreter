@@ -29,7 +29,7 @@ from book_interpreter.loaders import SUPPORTED_EXTENSIONS, UnsupportedFormatErro
 from book_interpreter.parser import parse_book
 from book_interpreter.qa import answer_question
 from webapp.ratelimit import limiter
-from webapp.persistence import load_state, save_state
+from webapp.persistence import delete_book_files, load_state, save_state
 from webapp.tts import TTSUnavailable, synthesize_batch, tts_configured
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -252,6 +252,15 @@ async def upload_book(file: UploadFile = File(...)) -> BookOut:
         filename=file.filename,
         chapters=[ChapterOut(title=c.title, summary=c.summary) for c in book.chapters],
     )
+
+
+@app.delete("/api/books/{book_id}")
+def delete_book(book_id: str) -> dict:
+    """删除已上传书籍及其落盘数据（浓缩/讲解缓存一并清除）。"""
+    record = _get_record(book_id)
+    del _books[book_id]
+    delete_book_files(book_id)
+    return {"ok": True, "title": record["book"].title}
 
 
 @app.get("/api/books/{book_id}/raw", response_model=RawOut)

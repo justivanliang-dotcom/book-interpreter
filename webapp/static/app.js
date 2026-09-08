@@ -187,6 +187,7 @@
     bookList.innerHTML = '';
     if (!items.length) {
       savedBooks.hidden = true;
+      emptyState.hidden = false;
       return;
     }
     items.forEach(function (item) {
@@ -198,13 +199,47 @@
       var meta = document.createElement('span');
       meta.className = 'book-list-meta';
       meta.textContent = item.filename + ' · ' + item.chapters.length + ' 章';
+      var del = document.createElement('span');
+      del.className = 'book-list-del';
+      del.textContent = '✕';
+      del.title = '删除该书';
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        deleteBook(item.id, item.title);
+      });
       li.appendChild(name);
       li.appendChild(meta);
+      li.appendChild(del);
       li.addEventListener('click', function () { openSavedBook(item); });
       bookList.appendChild(li);
     });
     savedBooks.hidden = false;
-    emptyState.hidden = false;
+    emptyState.hidden = !!state.bookId;
+  }
+
+  function deleteBook(bookId, title) {
+    var confirmed = true;
+    if (window.confirm) {
+      confirmed = window.confirm('删除《' + title + '》？该书的浓缩与讲解记录将一并清除，此操作不可恢复。');
+    }
+    if (!confirmed) return;
+    api('/api/books/' + bookId, { method: 'DELETE' })
+      .then(function () {
+        if (state.bookId === bookId) {
+          // 删除的是当前打开的书：重置视图并清除"上次打开"记录
+          localStorage.removeItem('book_interpreter_last');
+          state.bookId = null;
+          state.chapters = [];
+          bookCard.hidden = true;
+          report.hidden = true;
+          qaCard.hidden = true;
+          interpretBtn.disabled = true;
+        }
+        loadSavedBooks();
+      })
+      .catch(function (err) {
+        setStatus(err.message, true);
+      });
   }
 
   function openSavedBook(item) {
@@ -224,9 +259,9 @@
             if (items[i].id === lastId) { last = items[i]; break; }
           }
         }
-        if (last) {
+        if (last && last.id !== state.bookId) {
           openSavedBook(last);
-        } else if (items.length === 1) {
+        } else if (items.length === 1 && items[0].id !== state.bookId) {
           openSavedBook(items[0]);
         }
       })

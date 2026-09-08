@@ -146,3 +146,40 @@ def test_interpretation_persisted():
 def test_empty_state_dir_loads_nothing():
     _restart()
     assert client.get("/api/books").json() == []
+
+
+def test_delete_book_removes_record_and_files():
+    book_id = _book_id(_upload())
+    client.post(f"/api/books/{book_id}/chapters/0/summarize?ratio=0.5")
+    assert persistence.book_state_path(book_id).exists()
+    assert persistence.raw_text_path(book_id).exists()
+
+    resp = client.delete(f"/api/books/{book_id}")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert book_id not in _books
+    assert not persistence.book_state_path(book_id).exists()
+    assert not persistence.raw_text_path(book_id).exists()
+    assert client.get("/api/books").json() == []
+
+    _restart()
+    assert client.get("/api/books").json() == []  # 重启后删除仍然生效
+
+
+def test_delete_book_unknown_returns_404():
+    resp = client.delete("/api/books/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_delete_then_reupload_same_book_works():
+    book_id = _book_id(_upload())
+    client.delete(f"/api/books/{book_id}")
+    _restart()
+    assert client.get("/api/books").json() == []
+
+    # 删除后重新上传同一本书不应残留旧数据
+    book_id2 = _book_id(_upload("持久化测试书", "# 持久化测试书\n\n## 第一章\n内容一\n\n## 第二章\n内容二"))
+    assert book_id2 != book_id
+    items = client.get("/api/books").json()
+    assert len(items) == 1
+    assert items[0]["id"] == book_id2

@@ -153,3 +153,12 @@ def _read_raw_text(book_id: str) -> str:
         return raw_text_path(book_id).read_text(encoding="utf-8")
     except OSError:
         return ""
+
+
+def delete_book_files(book_id: str) -> None:
+    """删除某本书的落盘文件（记录 json 与原始文本 txt），文件不存在时静默跳过。"""
+    for path in (book_state_path(book_id), raw_text_path(book_id)):
+        try:
+            path.unlink()
+        except OSError:
+            pass
