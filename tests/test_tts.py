@@ -45,6 +45,13 @@ def _ok_resp(*texts: str) -> FakeResp:
 
 def test_tts_configured_default(monkeypatch):
     monkeypatch.delenv("VOLC_TTS_API_KEY", raising=False)
+    monkeypatch.setattr(tts_mod, "_edge_available", lambda: True)
+    assert tts_mod.tts_configured() is True
+
+
+def test_tts_configured_no_edge(monkeypatch):
+    monkeypatch.delenv("VOLC_TTS_API_KEY", raising=False)
+    monkeypatch.setattr(tts_mod, "_edge_available", lambda: False)
     assert tts_mod.tts_configured() is False
 
 
@@ -88,10 +95,10 @@ def test_synthesize_custom_speaker(monkeypatch):
     assert seen["speaker"] == "zh_female_xiaohe_uranus_bigtts"
 
 
-def test_synthesize_no_key(monkeypatch):
+def test_synthesize_no_key_uses_edge(monkeypatch):
     monkeypatch.delenv("VOLC_TTS_API_KEY", raising=False)
-    with pytest.raises(TTSUnavailable):
-        tts_mod.synthesize("你好")
+    monkeypatch.setattr(tts_mod, "_edge_synthesize", lambda t: t.encode())
+    assert tts_mod.synthesize("你好") == "你好".encode()
 
 
 def test_synthesize_http_error(monkeypatch):
@@ -130,7 +137,17 @@ def test_synthesize_batch_order(monkeypatch):
     assert out == ["甲。".encode(), "乙。".encode(), "丙。".encode()]
 
 
-def test_api_tts_status_no_key():
+def test_api_tts_status_no_key_edge_available(monkeypatch):
+    monkeypatch.delenv("VOLC_TTS_API_KEY", raising=False)
+    monkeypatch.setattr(tts_mod, "_edge_available", lambda: True)
+    resp = client.get("/api/tts/status")
+    assert resp.status_code == 200
+    assert resp.json() == {"available": True}
+
+
+def test_api_tts_status_no_key_edge_missing(monkeypatch):
+    monkeypatch.delenv("VOLC_TTS_API_KEY", raising=False)
+    monkeypatch.setattr(tts_mod, "_edge_available", lambda: False)
     resp = client.get("/api/tts/status")
     assert resp.status_code == 200
     assert resp.json() == {"available": False}
@@ -172,3 +189,80 @@ def test_api_tts_batch_unavailable(monkeypatch):
     resp = client.post("/api/tts/batch", json={"texts": ["一。"]})
     assert resp.status_code == 503
     assert "未配置" in resp.json()["detail"]
+
+
+# ---------- Edge 合成与重试 ----------
+
+
+def _make_fake_stream(audio: bytes):
+    class FakeStream:
+        def __init__(self):
+            self._data = [{"type": "audio", "data": audio}]
+
+        def __aiter__(self):
+            self._it = iter(self._data)
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._it)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    return FakeStream
+
+
+def test_edge_synthesize_retry_success(monkeypatch):
+    monkeypatch.delenv("VOLC_TTS_API_KEY", raising=False)
+    import edge_tts
+
+    attempts = {"n": 0}
+    FakeStream = _make_fake_stream(b"abc")
+
+    class FakeComm:
+        def __init__(self, text, voice):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise OSError("connection reset")
+
+        def stream(self):
+            return FakeStream()
+
+    monkeypatch.setattr(edge_tts, "Communicate", FakeComm)
+    audio = tts_mod.synthesize("重试测试")
+    assert audio == b"abc"
+    assert attempts["n"] == 3
+
+
+def test_edge_synthesize_retry_exhausted(monkeypatch):
+    monkeypatch.delenv("VOLC_TTS_API_KEY", raising=False)
+    import edge_tts
+
+    def fail_comm(text, voice):
+        raise OSError("boom")
+
+    monkeypatch.setattr(edge_tts, "Communicate", fail_comm)
+    with pytest.raises(TTSUnavailable, match="boom"):
+        tts_mod.synthesize("重试测试")
+
+
+def test_edge_many_retry_success(monkeypatch):
+    monkeypatch.delenv("VOLC_TTS_API_KEY", raising=False)
+    import edge_tts
+
+    attempts = {"n": 0}
+    FakeStream = _make_fake_stream(b"xyz")
+
+    class FakeComm:
+        def __init__(self, text, voice):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise OSError("connection reset")
+
+        def stream(self):
+            return FakeStream()
+
+    monkeypatch.setattr(edge_tts, "Communicate", FakeComm)
+    out = tts_mod.synthesize_batch(["甲。", "乙。"])
+    assert out == [b"xyz", b"xyz"]
+    assert attempts["n"] >= 3
