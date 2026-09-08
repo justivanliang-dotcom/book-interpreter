@@ -1,6 +1,7 @@
 """多格式文本提取测试。"""
 
 import io
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +9,7 @@ from book_interpreter.loaders import (
     SUPPORTED_EXTENSIONS,
     UnsupportedFormatError,
     _entry_title,
+    _flatten_toc,
     _html_first_heading,
     _html_title,
     extract_text,
@@ -181,3 +183,102 @@ def test_html_to_text_skips_script():
     assert "内容乙" in text
     assert "script" not in text
     assert "color" not in text
+
+
+def test_html_to_text_skips_head():
+    """head 区内容（如 title）不应混入正文。"""
+    html = (
+        "<html><head><title>未知</title></head><body>"
+        "<h1>第一章</h1><p>正文内容。</p></body></html>"
+    )
+    text = html_to_text(html)
+    assert "未知" not in text
+    assert "第一章" in text
+
+
+def _link(title, href):
+    return SimpleNamespace(title=title, href=href, file_name=None)
+
+
+def test_flatten_toc_nested_sections():
+    """嵌套 (Section, [children]) 目录应完整展开，子章节不丢失。
+
+    对应《大学之路》合订本：下册目录以 Section 包裹子链接列表，
+    旧逻辑把 (Section, [children]) 当作单个条目导致子章节全部丢失。
+    """
+    toc = [
+        (_link("大学之路（上）", "cover.xhtml"), [
+            _link("第一章", "chap1.xhtml"),
+            (_link("第一章 大学的概念", "chap1.xhtml"), [
+                _link("第一节", "chap1.xhtml#s1"),
+                _link("第二节", "chap1.xhtml#s2"),
+            ]),
+        ]),
+        (_link("大学之路(下)", "text00000.html"), [
+            [(_link("内容提要", "text00002.html"), [
+                _link("前言", "text00004.html"),
+                (_link("第八章大都市里的常青藤大学", "text00006.html"), [
+                    _link("第一节宾夕法尼亚大学", "text00006.html#toc_id_5"),
+                ]),
+            ])],
+        ]),
+    ]
+    flat = _flatten_toc(toc)
+    titles = [t for t, _ in flat]
+    assert titles == [
+        "大学之路（上）",
+        "第一章",
+        "第一章 大学的概念",
+        "第一节",
+        "第二节",
+        "大学之路(下)",
+        "内容提要",
+        "前言",
+        "第八章大都市里的常青藤大学",
+        "第一节宾夕法尼亚大学",
+    ]
+
+
+def test_extract_epub_anchor_split(tmp_path):
+    """同一文件被多个目录条目引用时按锚点切分，内容不重复。
+
+    对应《大学之路》上册：第一章与各"第一节/第二节"指向同一
+    xhtml 文件的不同锚点，旧逻辑把整章内容重复输出到每个子节。
+    """
+    from ebooklib import epub
+
+    book = epub.EpubBook()
+    book.set_identifier("anchor-split")
+    book.set_title("锚点书")
+    ch = epub.EpubHtml(title="第一章", file_name="chap1.xhtml", lang="zh")
+    ch.content = (
+        "<html><head><title>第一章</title></head><body>"
+        "<h2 id='s0'>第一章 大学的概念</h2><p>本章引言。</p>"
+        "<h3 id='s1'>第一节 大学的历史</h3><p>第一节内容。</p>"
+        "<h3 id='s2'>第二节 精英教育</h3><p>第二节内容。</p>"
+        "<h3 id='s3'>结束语</h3><p>结束语内容。</p>"
+        "</body></html>"
+    )
+    book.add_item(ch)
+    book.toc = (
+        (epub.Link("chap1.xhtml", "第一章 大学的概念", "c1"), [
+            epub.Link("chap1.xhtml#s1", "第一节 大学的历史", "c2"),
+            epub.Link("chap1.xhtml#s2", "第二节 精英教育", "c3"),
+            epub.Link("chap1.xhtml#s3", "结束语", "c4"),
+        ]),
+    )
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    path = tmp_path / "anchor.epub"
+    epub.write_epub(str(path), book)
+
+    text = extract_text("anchor.epub", path.read_bytes())
+    # 每个子节内容只出现一次，不再重复整章
+    assert text.count("第一节内容") == 1
+    assert text.count("第二节内容") == 1
+    assert text.count("结束语内容") == 1
+    assert "## 第一章 大学的概念" in text
+    assert "## 第一节 大学的历史" in text
+    assert "## 结束语" in text
+    # head 中的 title 不应混入正文
+    assert "未知" not in text

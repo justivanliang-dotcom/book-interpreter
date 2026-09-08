@@ -7,6 +7,7 @@ import re
 import shutil
 import tempfile
 import urllib.parse
+from collections import OrderedDict
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -34,8 +35,16 @@ def _decode_text(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+_ANCHOR_MARK = "\u0000#{}#\u0000"
+_ANCHOR_RE = re.compile(r"\u0000#([A-Za-z0-9_.\-]+)#\u0000")
+
+
 class _HtmlToText(HTMLParser):
-    """把 HTML 转为带段落换行的纯文本，跳过 script/style 内容。"""
+    """把 HTML 转为带段落换行的纯文本，跳过 script/style 内容。
+
+    带 id 的标签会在对应文本位置留下锚点记录（self._anchors），
+    供 EPUB 按目录锚点切分同一文件内的多个章节。
+    """
 
     _BLOCK_TAGS = {
         "p", "div", "br", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -46,21 +55,31 @@ class _HtmlToText(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._parts: list[str] = []
         self._skip_depth = 0
+        self._head_depth = 0
+        self._anchors: dict[str, int] = {}
 
     def handle_starttag(self, tag: str, attrs) -> None:
         if tag in ("script", "style"):
             self._skip_depth += 1
-        elif self._skip_depth == 0 and tag in self._BLOCK_TAGS:
-            self._parts.append("\n")
+        elif tag == "head":
+            self._head_depth += 1
+        elif self._skip_depth == 0 and self._head_depth == 0:
+            aid = dict(attrs).get("id")
+            if aid and _ANCHOR_RE.match(_ANCHOR_MARK.format(aid)):
+                self._parts.append(_ANCHOR_MARK.format(aid))
+            if tag in self._BLOCK_TAGS:
+                self._parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("script", "style"):
             self._skip_depth = max(0, self._skip_depth - 1)
-        elif self._skip_depth == 0 and tag in self._BLOCK_TAGS:
+        elif tag == "head":
+            self._head_depth = max(0, self._head_depth - 1)
+        elif self._skip_depth == 0 and self._head_depth == 0 and tag in self._BLOCK_TAGS:
             self._parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if self._skip_depth == 0:
+        if self._skip_depth == 0 and self._head_depth == 0:
             self._parts.append(data)
 
     def text(self) -> str:
@@ -75,14 +94,34 @@ class _HtmlToText(HTMLParser):
                 blank += 1
                 if blank == 1:
                     out.append("")
-        return "\n".join(out).strip()
+        raw = "\n".join(out)
+        return self._split_anchors(raw)
+
+    def _split_anchors(self, raw: str) -> str:
+        """提取锚点位置并移除标记；锚点位置存于 self._anchors。"""
+        self._anchors = {}
+        parts: list[str] = []
+        pos = 0
+        consumed = 0
+        for m in _ANCHOR_RE.finditer(raw):
+            parts.append(raw[pos:m.start()])
+            consumed += m.start() - pos
+            self._anchors.setdefault(m.group(1), consumed)
+            pos = m.end()
+        parts.append(raw[pos:])
+        return "".join(parts)
 
 
-def html_to_text(html: str) -> str:
+def html_to_text_anchored(html: str) -> tuple[str, dict[str, int]]:
+    """把 HTML 转为纯文本，同时返回 {id: 字符偏移} 锚点表。"""
     parser = _HtmlToText()
     parser.feed(html)
     parser.close()
-    return parser.text()
+    return parser.text(), parser._anchors
+
+
+def html_to_text(html: str) -> str:
+    return html_to_text_anchored(html)[0]
 
 
 def _extract_pdf(raw: bytes) -> str:
@@ -143,7 +182,11 @@ def _entry_title(item, raw_html: str, fname: str) -> str:
 
 
 def _flatten_toc(toc) -> list[tuple[str, str | None]]:
-    """递归展开 ebooklib 目录，返回 [(标题, 文件路径), ...]。"""
+    """递归展开 ebooklib 目录，返回 [(标题, 文件路径), ...]。
+
+    兼容 (Link/Section, [children]) 与 (字符串, [children]) 两类嵌套结构：
+    子章节以 tuple/list 包裹时，先输出自身再深入展开 children。
+    """
 
     def entry_of(node) -> tuple[str, str | None]:
         if isinstance(node, str):
@@ -157,9 +200,13 @@ def _flatten_toc(toc) -> list[tuple[str, str | None]]:
     def walk(nodes) -> None:
         for node in nodes:
             if isinstance(node, (tuple, list)):
-                if node:
+                # (条目, [子目录])：先输出条目，再深入子目录；
+                # 纯子列表（如 [ (Section, [children]) ]）直接递归展开
+                if node and (isinstance(node[0], str) or hasattr(node[0], "title")):
                     out.append(entry_of(node[0]))
                     walk(node[1:])
+                else:
+                    walk(node)
             elif node is not None:
                 out.append(entry_of(node))
 
@@ -170,8 +217,9 @@ def _flatten_toc(toc) -> list[tuple[str, str | None]]:
 def _extract_epub(raw: bytes) -> str:
     """按 EPUB 目录（NCX/nav）组织章节，输出 Markdown 结构文本。
 
-    优先使用书内目录的标题作为章节标题，正文内容按目录顺序拼入，
-    避免正文标题为图片或注释块干扰导致的章节标题丢失。
+    优先使用书内目录的标题作为章节标题；多个目录条目指向同一文件时
+    按锚点切分内容（每个条目取"自身锚点 → 下一锚点"区间），避免
+    重复输出整章内容，也保证嵌套目录（Section 带子目录）不丢失。
     """
     import ebooklib
     from ebooklib import epub
@@ -184,22 +232,38 @@ def _extract_epub(raw: bytes) -> str:
     }
     title = (book.title or "").strip()
     lines = [f"# {title}"] if title else []
-    emitted: set[str] = set()
 
-    def content_of(item) -> str:
-        return html_to_text(item.get_content().decode("utf-8", errors="replace"))
+    def content_of(item) -> tuple[str, dict[str, int]]:
+        return html_to_text_anchored(item.get_content().decode("utf-8", errors="replace"))
 
     if toc:
+        # 按文件分组目录条目，保留目录顺序；锚点切分须在同一文件内进行
+        by_file: "OrderedDict[str, list[tuple[str, str]]]" = OrderedDict()
         for entry_title, href in toc:
-            fname = _norm_href(href)
+            if not href:
+                continue
+            fname, _, anchor = href.partition("#")
+            by_file.setdefault(fname, []).append((entry_title, anchor))
+
+        for fname, entries in by_file.items():
             item = docs.get(fname)
-            text = ""
-            if item is not None:
-                text = content_of(item)
-                emitted.add(fname)
-            lines.append(f"## {entry_title}")
-            if text:
-                lines.append(text)
+            if item is None:
+                for entry_title, _ in entries:
+                    lines.append(f"## {entry_title}")
+                continue
+            text, anchors = content_of(item)
+            n = len(entries)
+            for i, (entry_title, anchor) in enumerate(entries):
+                start = 0 if i == 0 else anchors.get(anchor, prev_end)
+                if i + 1 < n:
+                    end = anchors.get(entries[i + 1][1], len(text))
+                else:
+                    end = len(text)
+                prev_end = end
+                seg = text[start:end].strip()
+                lines.append(f"## {entry_title}")
+                if seg:
+                    lines.append(seg)
     else:
         for fname, item in sorted(docs.items()):
             if fname.lower().endswith(("nav.xhtml", "nav.html", "toc.xhtml")):
