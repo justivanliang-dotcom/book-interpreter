@@ -569,10 +569,22 @@
         container.appendChild(wrap);
         container.appendChild(document.createTextNode(' '));
       });
-    } else {
-      var plain = document.createElement('div');
-      plain.textContent = data.summary;
-      container.appendChild(plain);
+    } else if (data.summary) {
+      // 100% 浓缩等场景后端不拆句：前端按标点拆句，确保可长按朗读
+      var plainWraps = [];
+      var plainSents = splitPlainSentences(data.summary);
+      var lastPlainPara = null;
+      plainSents.forEach(function (s, i) {
+        if (lastPlainPara !== null && s.para !== lastPlainPara) {
+          container.appendChild(document.createElement('br'));
+          container.appendChild(document.createElement('br'));
+        }
+        lastPlainPara = s.para;
+        var w = buildSentenceWrap(s.text, null, i, plainWraps);
+        plainWraps.push(w);
+        container.appendChild(w);
+        container.appendChild(document.createTextNode(' '));
+      });
     }
   }
 

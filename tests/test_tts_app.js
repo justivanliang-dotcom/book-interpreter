@@ -234,6 +234,43 @@ function findSpeakBar() {
   assert.strictEqual(bar.hidden, true, '停止后停止条应隐藏');
   assert.strictEqual(wraps[2].classList.contains('speaking'), false, '停止后高亮应清除');
 
+  // 5b. 100% 浓缩（后端不拆句、只返回 summary 全文）：前端应自动拆句并支持长按朗读
+  spoken.length = 0;
+  // 模拟 100% 浓缩响应：无 sentences 但有 summary 全文
+  const fullSummary = '第一句。第二句！第三句？';
+  const origFetch = context.fetch;
+  context.fetch = function (url, options) {
+    if (url.indexOf('/summarize') >= 0) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          title: '第一章',
+          summary: fullSummary,
+          sentences: [],
+          word_count: 12,
+          target_words: 12,
+        }),
+      });
+    }
+    return origFetch(url, options);
+  };
+  const ratioSelect = li0.querySelector('.chapter-ratio');
+  ratioSelect.value = '1.0';
+  li0.querySelector('.summarize-btn').click();
+  await tick();
+  const fullWraps = summaryBox.queryAll('.sentence-wrap');
+  assert.strictEqual(fullWraps.length, 3, '100%浓缩无sentences时前端应按标点拆为3句');
+  // 长按第 2 句 → 弹出菜单 → 朗读
+  const fullSpan1 = fullWraps[1].querySelector('.summary-sentence');
+  const fmd = fullSpan1._handlers['mousedown'][0];
+  fmd({ clientX: 10, clientY: 10 });
+  await sleep(560);
+  let fullMenu = documentMock.body.queryAll('.speak-menu')[0];
+  assert.ok(fullMenu, '100%浓缩句子也应支持长按弹出朗读菜单');
+  fullMenu.queryAll('.btn').find((b) => b.textContent === '朗读').click();
+  assert.deepStrictEqual(spoken.slice(), ['第二句！'], '100%浓缩长按朗读应从该句开始');
+  context.fetch = origFetch;
+
   // 6. 大白话讲解：拆句渲染，长按句子弹出朗读菜单从该句朗读，单击不触发
   spoken.length = 0;
   li0.querySelector('.plain-btn').click();
