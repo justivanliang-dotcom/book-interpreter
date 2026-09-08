@@ -275,6 +275,51 @@ body {
   box-shadow: 0 0 0 1px rgba(201,138,61,0.45);
 }
 
+/* 语音朗读 */
+.sentence-wrap { position: relative; display: inline; }
+.sentence-wrap.speaking {
+  background: rgba(47, 107, 79, 0.25);
+  box-shadow: 0 0 0 1px rgba(47, 107, 79, 0.4);
+  border-radius: 4px;
+}
+.speak-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0 2px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(47, 107, 79, 0.12);
+  color: var(--accent);
+  cursor: pointer;
+  vertical-align: baseline;
+  transition: background 0.15s, transform 0.1s;
+}
+.speak-btn:hover { background: rgba(47, 107, 79, 0.28); }
+.speak-btn:active { transform: scale(0.92); }
+.speak-btn svg { width: 11px; height: 11px; fill: currentColor; }
+.speak-all-btn { margin-top: 0.5rem; }
+.speak-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  background: var(--accent);
+  color: #fff;
+  padding: 0.55rem 1.2rem;
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(42, 39, 34, 0.25);
+  font-size: 0.85rem;
+}
+.speak-bar[hidden] { display: none; }
+.speak-bar .btn.ghost { color: #fff; border-color: rgba(255, 255, 255, 0.65); }
+
 .source-panel {
   position: fixed;
   top: 0;

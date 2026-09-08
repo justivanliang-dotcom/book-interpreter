@@ -263,6 +263,91 @@
     }
   }
 
+  var SPEAK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>';
+
+  // 朗读浮动条（全局唯一）
+  var speakBar = document.createElement('div');
+  speakBar.className = 'speak-bar';
+  speakBar.hidden = true;
+  var sbText = document.createElement('span');
+  sbText.textContent = '正在朗读…';
+  var sbStop = document.createElement('button');
+  sbStop.className = 'btn ghost small';
+  sbStop.textContent = '停止';
+  sbStop.addEventListener('click', stopSpeak);
+  speakBar.appendChild(sbText);
+  speakBar.appendChild(sbStop);
+  document.body.appendChild(speakBar);
+
+  function showSpeakBar() { speakBar.hidden = false; }
+  function hideSpeakBar() { speakBar.hidden = true; }
+
+  function clearSpeakHighlight() {
+    var all = document.querySelectorAll('.sentence-wrap.speaking');
+    all.forEach(function (a) { a.classList.remove('speaking'); });
+  }
+
+  function stopSpeak() {
+    if (window.TTS) window.TTS.stop();
+    hideSpeakBar();
+    clearSpeakHighlight();
+  }
+
+  // 从第 startIndex 句开始朗读整组句子，逐句高亮
+  function speakSentences(wraps, startIndex) {
+    if (!window.TTS || !window.TTS.supported) return;
+    stopSpeak();
+    var texts = wraps.map(function (w) {
+      var s = w.querySelector('.summary-sentence');
+      return s ? s.textContent : '';
+    });
+    showSpeakBar();
+    window.TTS.speakFrom(texts, startIndex, {
+      onProgress: function (i) {
+        clearSpeakHighlight();
+        if (wraps[i]) wraps[i].classList.add('speaking');
+      },
+      onEnd: stopSpeak
+    });
+  }
+
+  // 构建"句子文本 + 朗读按钮"组合。onTextClick 收到 span 元素（用于高亮原文）。
+  function buildSentenceWrap(text, onTextClick, index, wraps) {
+    var wrap = document.createElement('span');
+    wrap.className = 'sentence-wrap';
+    var span = document.createElement('span');
+    span.className = 'summary-sentence';
+    span.textContent = text;
+    if (onTextClick) {
+      span.addEventListener('click', function () { onTextClick(span); });
+    }
+    var btn = document.createElement('button');
+    btn.className = 'speak-btn';
+    btn.title = '从这句开始朗读';
+    btn.innerHTML = SPEAK_SVG;
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (window.TTS && wraps.length) speakSentences(wraps, index);
+    });
+    wrap.appendChild(span);
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  // 大白话讲解拆句：按标点拆句，保留段落信息
+  function splitPlainSentences(text) {
+    var paras = String(text || '').split(/\n+/).filter(function (p) { return p.trim(); });
+    var out = [];
+    paras.forEach(function (p, pi) {
+      var segs = String(p).match(/[^。！？；…]+[。！？；…]?/g) || [];
+      segs.forEach(function (seg) {
+        var t = String(seg).trim();
+        if (t) out.push({ text: t, para: pi });
+      });
+    });
+    return out;
+  }
+
   function renderSummary(container, data) {
     container.innerHTML = '';
     if (data.target_words && data.word_count) {
@@ -275,17 +360,16 @@
     var sentences = data.sentences;
     if (sentences && sentences.length) {
       var lastPara = null;
-      sentences.forEach(function (s) {
+      var wraps = [];
+      sentences.forEach(function (s, i) {
         if (lastPara !== null && s.para !== lastPara) {
           container.appendChild(document.createElement('br'));
           container.appendChild(document.createElement('br'));
         }
         lastPara = s.para;
-        var span = document.createElement('span');
-        span.className = 'summary-sentence';
-        span.textContent = s.text;
-        span.addEventListener('click', function () { showSource(s, span); });
-        container.appendChild(span);
+        var wrap = buildSentenceWrap(s.text, function (span) { showSource(s, span); }, i, wraps);
+        wraps.push(wrap);
+        container.appendChild(wrap);
         container.appendChild(document.createTextNode(' '));
       });
     } else {
@@ -411,7 +495,29 @@
     label.textContent = '大白话解读';
     var body = document.createElement('div');
     body.className = 'plain-body';
-    body.textContent = text;
+    var sentences = splitPlainSentences(text);
+    var wraps = [];
+    var lastPara = null;
+    sentences.forEach(function (s, i) {
+      if (lastPara !== null && s.para !== lastPara) {
+        body.appendChild(document.createElement('br'));
+        body.appendChild(document.createElement('br'));
+      }
+      lastPara = s.para;
+      // 讲解没有原文引用，点击句子本身即从该句开始朗读
+      var wrap = buildSentenceWrap(s.text, function () { speakSentences(wraps, i); }, i, wraps);
+      wraps.push(wrap);
+      body.appendChild(wrap);
+    });
+    if (sentences.length > 1) {
+      body.appendChild(document.createElement('br'));
+      var allBtn = document.createElement('button');
+      allBtn.className = 'btn ghost small speak-all-btn';
+      allBtn.textContent = '朗读全部';
+      allBtn.addEventListener('click', function () { speakSentences(wraps, 0); });
+      body.appendChild(allBtn);
+    }
+    if (!sentences.length) body.textContent = text;
     box.appendChild(label);
     box.appendChild(body);
   }
