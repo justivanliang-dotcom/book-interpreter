@@ -38,8 +38,8 @@
     return zhCN[0];
   }
 
-  function probeServer(cb) {
-    if (serverAvailable !== null) return cb(serverAvailable);
+  function probeServer(cb, force) {
+    if (serverAvailable !== null && !force) return cb(serverAvailable);
     if (typeof window === 'undefined' || !window.fetch) {
       serverAvailable = false;
       return cb(false);
@@ -235,10 +235,14 @@
     if (start < 0 || start >= items.length) start = 0;
     if (serverAvailable === true) {
       speakServer(items, start, opts);
-    } else {
-      // 未探测完成或后端不可用：浏览器语音
-      browserSpeakFrom(items, start, opts);
+      return;
     }
+    // 未探测或此前探测失败：每次朗读前强制重新探测，
+    // 尽量走服务器自然女声（晓晓），只有确认不可用才回退浏览器语音
+    probeServer(function (avail) {
+      if (avail) speakServer(items, start, opts);
+      else browserSpeakFrom(items, start, opts);
+    }, true);
   }
 
   function stop() {

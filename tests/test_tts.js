@@ -249,6 +249,52 @@ const TTS = context.window.TTS;
   vm.runInContext(src, ctx6, { filename: 'tts.js' });
   assert.strictEqual(ctx6.window.TTS.pickVoice(), null, '无普通话语音时应返回 null，绝不选粤语');
 
+  // 17. 探测失败后恢复：再次朗读时强制重探测，成功后走服务器自然女声
+  let statusFlip = false;
+  const ctx7 = {
+    window: {
+      fetch: (url, options) => {
+        if (url === '/api/tts/status') {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ available: statusFlip }) });
+        }
+        if (url === '/api/tts/batch') {
+          const texts = (JSON.parse(options.body).texts || []);
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ audios: texts.map((t) => b64(t)) }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      },
+      speechSynthesis: speechMock,
+    },
+    SpeechSynthesisUtterance: function (text) { this.text = text; },
+    Audio: AudioMock,
+    URL: { createObjectURL: () => 'blob:mock-audio', revokeObjectURL: () => {} },
+    atob: (s) => Buffer.from(s, 'base64').toString('binary'),
+    Blob: globalThis.Blob,
+  };
+  vm.createContext(ctx7);
+  vm.runInContext(src, ctx7, { filename: 'tts.js' });
+  const TTS7 = ctx7.window.TTS;
+  await new Promise((r) => TTS7.probeServer(r));
+  assert.strictEqual(statusFlip, false, '首轮探测应处于不可用状态');
+  // 探测不可用时：回退浏览器语音
+  spoken.length = 0;
+  TTS7.speakFrom(['回退句。'], 0, {});
+  await tick();
+  await tick();
+  assert.deepStrictEqual(spoken.slice(), ['回退句。'], '探测不可用应回退浏览器语音');
+  // 服务器恢复后：再次朗读强制重探测 → 服务器自然女声
+  statusFlip = true;
+  spoken.length = 0;
+  const audioBefore = audioInstances.length;
+  TTS7.speakFrom(['服务器句。'], 0, {});
+  await tick();
+  await tick();
+  assert.deepStrictEqual(spoken.slice(), [], '重探测成功应走服务器模式，不再用浏览器语音');
+  assert.ok(audioInstances.length > audioBefore, '服务器模式应创建 Audio 播放自然女声');
+
   console.log('test_tts.js 全部通过');
 })().catch((err) => {
   console.error(err);
