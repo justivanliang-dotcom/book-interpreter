@@ -212,6 +212,43 @@ const TTS = context.window.TTS;
   await tick();
   assert.deepStrictEqual(spoken.slice(), ['回退一。'], '服务器失败应回退浏览器语音');
 
+  // 15. 语音选择：只在普通话（zh-CN）里挑女声，绝不选粤语/台湾
+  const ctx5 = {
+    window: {
+      speechSynthesis: {
+        getVoices: () => [
+          { lang: 'zh-HK', name: 'Sinji - 粤語（香港）' },
+          { lang: 'zh-TW', name: '美佳 - 中文（台湾）' },
+          { lang: 'zh-CN', name: 'Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)' },
+          { lang: 'zh-CN', name: 'Microsoft Huihui - Chinese (Simplified, PRC)' },
+        ],
+      },
+    },
+    SpeechSynthesisUtterance: function (text) { this.text = text; },
+  };
+  vm.createContext(ctx5);
+  vm.runInContext(src, ctx5, { filename: 'tts.js' });
+  const picked = ctx5.window.TTS.pickVoice();
+  assert.ok(picked, '应选到普通话语音');
+  assert.strictEqual(picked.lang, 'zh-CN', '必须选普通话 zh-CN，不得选粤语/台湾');
+  assert.ok(/xiaoxiao/i.test(picked.name), '自然女声（晓晓）应优先于普通普通话女声');
+
+  // 16. 只有粤语没有普通话时：宁可不用语音，也不读粤语
+  const ctx6 = {
+    window: {
+      speechSynthesis: {
+        getVoices: () => [
+          { lang: 'zh-HK', name: 'Sinji - 粵語（香港）' },
+          { lang: 'zh-HK', name: 'Tracy - 粵語（香港）' },
+        ],
+      },
+    },
+    SpeechSynthesisUtterance: function (text) { this.text = text; },
+  };
+  vm.createContext(ctx6);
+  vm.runInContext(src, ctx6, { filename: 'tts.js' });
+  assert.strictEqual(ctx6.window.TTS.pickVoice(), null, '无普通话语音时应返回 null，绝不选粤语');
+
   console.log('test_tts.js 全部通过');
 })().catch((err) => {
   console.error(err);

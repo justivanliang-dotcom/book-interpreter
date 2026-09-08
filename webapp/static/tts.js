@@ -23,19 +23,19 @@
     try { voices = window.speechSynthesis.getVoices() || []; } catch (e) { voices = []; }
   }
 
-  // 自然女声偏好列表（按名字关键词匹配，微软 Edge 的晓晓/晓伊等是自然音）
+  // 自然女声偏好列表（按名字关键词匹配，微软 Edge 的晓晓/晓伊等是自然音）。
+  // 只在普通话（zh-CN）里挑选，绝不选粤语/台湾（zh-HK/zh-TW），保证朗读统一普通话
   var FEMALE_HINTS = ['xiaoxiao', 'xiaoyi', 'yaoyao', 'huihui', 'meijia', 'tingting', 'female'];
   function pickVoice() {
-    var zh = voices.filter(function (v) { return /^zh/i.test(v.lang || ''); });
-    if (!zh.length) return null;
+    var zhCN = voices.filter(function (v) { return /^zh-cn/i.test(v.lang || ''); });
+    if (!zhCN.length) return null;
     for (var i = 0; i < FEMALE_HINTS.length; i++) {
-      var hit = zh.filter(function (v) {
+      var hit = zhCN.filter(function (v) {
         return (v.name || '').toLowerCase().indexOf(FEMALE_HINTS[i]) >= 0;
       })[0];
       if (hit) return hit;
     }
-    var zhCN = zh.filter(function (v) { return /zh-cn/i.test(v.lang || ''); })[0];
-    return zhCN || zh[0];
+    return zhCN[0];
   }
 
   function probeServer(cb) {

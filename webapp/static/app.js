@@ -711,8 +711,8 @@
         body.appendChild(document.createElement('br'));
       }
       lastPara = s.para;
-      // 讲解没有原文引用，点击句子本身即从该句开始朗读
-      var wrap = buildSentenceWrap(s.text, function () { speakSentences(wraps, i); }, i, wraps);
+      // 讲解与浓缩一致：长按句子弹出朗读菜单，单击不触发朗读
+      var wrap = buildSentenceWrap(s.text, null, i, wraps);
       wraps.push(wrap);
       body.appendChild(wrap);
     });

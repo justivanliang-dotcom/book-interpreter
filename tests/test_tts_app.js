@@ -69,7 +69,13 @@ function makeEl(tag) {
     get() { return this._text; },
     set(v) { this._text = String(v); },
   });
-  el.appendChild = function (c) { this.children.push(c); return c; };
+  el.appendChild = function (c) { c.parentNode = this; this.children.push(c); return c; };
+  el.removeChild = function (c) {
+    const i = this.children.indexOf(c);
+    if (i >= 0) this.children.splice(i, 1);
+    if (c.parentNode === this) c.parentNode = null;
+    return c;
+  };
   el.addEventListener = function (t, fn) {
     (this._handlers[t] = this._handlers[t] || []).push(fn);
   };
@@ -228,7 +234,7 @@ function findSpeakBar() {
   assert.strictEqual(bar.hidden, true, '停止后停止条应隐藏');
   assert.strictEqual(wraps[2].classList.contains('speaking'), false, '停止后高亮应清除');
 
-  // 6. 大白话讲解：拆句渲染，点击句子从该句朗读
+  // 6. 大白话讲解：拆句渲染，长按句子弹出朗读菜单从该句朗读，单击不触发
   spoken.length = 0;
   li0.querySelector('.plain-btn').click();
   await tick();
@@ -237,8 +243,17 @@ function findSpeakBar() {
   assert.strictEqual(plainWraps.length, 4, '讲解应按标点拆为 4 句');
   const allBtn = plainBox.querySelector('.speak-all-btn');
   assert.ok(allBtn, '讲解多句时应显示"朗读全部"按钮');
+  // 单击讲解句子不得触发朗读（与浓缩一致，统一长按）
   plainWraps[2].querySelector('.summary-sentence').click();
-  assert.deepStrictEqual(spoken.slice(), ['讲解句三？'], '点击讲解第 3 句应从该句朗读');
+  assert.strictEqual(spoken.length, 0, '单击讲解句子不应触发朗读');
+  // 长按讲解第 3 句 → 弹出菜单 → 点"朗读"从该句开始
+  const pmd = plainWraps[2].querySelector('.summary-sentence')._handlers['mousedown'][0];
+  pmd({ clientX: 20, clientY: 20 });
+  await sleep(560);
+  let plainMenu = documentMock.body.queryAll('.speak-menu')[0];
+  assert.ok(plainMenu, '长按讲解句子应弹出朗读菜单');
+  plainMenu.queryAll('.btn').find((b) => b.textContent === '朗读').click();
+  assert.deepStrictEqual(spoken.slice(), ['讲解句三？'], '长按菜单朗读讲解第 3 句应从该句开始');
 
   // 7. "朗读全部"从第 1 句开始
   spoken.length = 0;

@@ -308,6 +308,15 @@ def test_auth_not_required_when_token_unset(monkeypatch):
     assert resp.status_code == 200
 
 
+def test_tts_status_exempt_from_auth(monkeypatch):
+    """tts/status 免鉴权：前端朗读探测无需口令也能获取。"""
+    monkeypatch.setenv("ACCESS_TOKEN", "secret123")
+    resp = client.get("/api/tts/status")
+    assert resp.status_code == 200
+    # 其他 /api/* 仍需口令
+    assert client.get("/api/books").status_code == 401
+
+
 def test_rate_limit_429():
     limiter.per_minute = 2
     try:

@@ -45,10 +45,13 @@ def _get_access_token() -> str:
     return os.environ.get("ACCESS_TOKEN", "")
 
 
+_NO_AUTH_PATHS = {"/api/auth/verify", "/api/tts/status"}
+
+
 @app.middleware("http")
 async def guard(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/api/") and path != "/api/auth/verify":
+    if path.startswith("/api/") and path not in _NO_AUTH_PATHS:
         token = _get_access_token()
         if token and not hmac.compare_digest(request.headers.get("x-access-token", ""), token):
             return JSONResponse(status_code=401, content={"detail": "请输入访问口令"})
