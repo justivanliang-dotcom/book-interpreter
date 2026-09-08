@@ -50,9 +50,32 @@
       .catch(function () { serverAvailable = false; cb(false); });
   }
 
+  // 朗读前清除 markdown 语法符号（** 加粗、* 斜体、` 代码、# 标题、[]() 链接、列表符号等），
+  // 避免语音引擎把符号读成"星号"等
+  function cleanText(text) {
+    if (!text) return text;
+    return String(text)
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/_([^_]+)_/g, '$1')
+      .replace(/~~([^~]+)~~/g, '$1')
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+      .replace(/^\s*>\s?/gm, '')
+      .replace(/^\s*[-+*]\s+/gm, '')
+      .replace(/^\s*\d+[.)]\s+/gm, '')
+      .replace(/[`*_~]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   function normItems(sentences) {
     return (sentences || [])
       .map(function (s) { return typeof s === 'string' ? s : (s && s.text ? s.text : ''); })
+      .map(cleanText)
       .filter(function (t) { return t && t.trim(); });
   }
 

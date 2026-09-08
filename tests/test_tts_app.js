@@ -245,6 +245,33 @@ function findSpeakBar() {
   allBtn.click();
   assert.deepStrictEqual(spoken.slice(), ['讲解句一。'], '"朗读全部"应从第 1 句开始');
 
+  // 8. 朗读前清洗 markdown 符号：** 加粗等不得读成"星号"
+  spoken.length = 0;
+  const markdownInput = [
+    '这是**重点**内容',
+    '含`代码`和[链接](http://x)',
+    '*斜体*与~~删除~~测试',
+    '## 标题行',
+    '- 列表项',
+    '1. 数字项',
+    '残余**星号',
+  ];
+  const baseLen = utterances.length;
+  context.window.TTS.speakFrom(markdownInput, 0, {});
+  while (utterances.length - baseLen < markdownInput.length) {
+    utterances[utterances.length - 1].onend();
+  }
+  assert.deepStrictEqual(
+    spoken.slice(),
+    ['这是重点内容', '含代码和链接', '斜体与删除测试', '标题行', '列表项', '数字项', '残余星号'],
+    '朗读文本应清除 markdown 符号（不读星号）'
+  );
+
+  // 9. 正常文本不受影响
+  spoken.length = 0;
+  context.window.TTS.speakFrom(['普通句子，没有符号。'], 0, {});
+  assert.deepStrictEqual(spoken.slice(), ['普通句子，没有符号。'], '无符号文本应原样朗读');
+
   console.log('test_tts_app.js 全部通过');
 })().catch((err) => {
   console.error(err);
