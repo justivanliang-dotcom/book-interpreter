@@ -1,5 +1,5 @@
 /* 语音朗读前端集成测试：加载真实 tts.js + app.js，mock DOM 与 speechSynthesis，
- * 验证浓缩句子与讲解句子的朗读按钮、从指定句开始朗读、朗读高亮与停止。
+ * 验证浓缩句子与讲解句子的长按朗读菜单、从指定句开始朗读、朗读高亮与停止。
  */
 'use strict';
 
@@ -24,6 +24,7 @@ function matches(el, sel) {
   if (sel === '.sentence-wrap') return cls.indexOf('sentence-wrap') >= 0;
   if (sel === '.summary-sentence') return cls.indexOf('summary-sentence') >= 0;
   if (sel === '.speak-btn') return cls.indexOf('speak-btn') >= 0;
+  if (sel === '.speak-menu') return cls.indexOf('speak-menu') >= 0;
   if (sel === '.speak-all-btn') return cls.indexOf('speak-all-btn') >= 0;
   if (sel === '.speak-bar') return cls.indexOf('speak-bar') >= 0;
   if (sel === '.sentence-wrap.speaking') return cls.indexOf('sentence-wrap') >= 0 && el.classList.contains('speaking');
@@ -48,6 +49,7 @@ function makeEl(tag) {
     _html: '',
     hidden: false,
     className: '',
+    style: {},
     value: '0.1',
     disabled: false,
     dataset: {},
@@ -70,6 +72,9 @@ function makeEl(tag) {
   el.appendChild = function (c) { this.children.push(c); return c; };
   el.addEventListener = function (t, fn) {
     (this._handlers[t] = this._handlers[t] || []).push(fn);
+  };
+  el.getBoundingClientRect = function () {
+    return { left: 0, top: 0, bottom: 0, right: 0, width: 0, height: 0 };
   };
   el.click = function (evt) {
     const e = Object.assign({ preventDefault() {}, stopPropagation() {} }, evt || {});
@@ -116,6 +121,10 @@ function okJson(data) {
 function fetchMock(url, options) {
   options = options || {};
   fetchCalls.push({ url, options });
+  if (url === '/api/tts/status') {
+    // 测试环境无豆包 API Key，走浏览器语音回退
+    return okJson({ available: false });
+  }
   if (url === '/api/books' && options.method === 'POST') {
     return okJson({ id: 'b1', title: '测试书', filename: 'a.md', chapters: [{ title: '第一章' }, { title: '第二章' }] });
   }
@@ -150,6 +159,8 @@ const context = {
   FormData: class { append() {} },
   localStorage: localStorageMock,
   SpeechSynthesisUtterance: function (text) { this.text = text; },
+  setTimeout,
+  clearTimeout,
   console,
   window: {
     get speechSynthesis() { return speechMock; },
@@ -162,6 +173,7 @@ assert.ok(context.window.TTS, 'tts.js 应挂载 window.TTS');
 vm.runInContext(appSrc, context, { filename: 'app.js' });
 
 const tick = () => new Promise((r) => setTimeout(r, 10));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function findSpeakBar() {
   return documentMock.body.queryAll('.speak-bar')[0] || null;
 }
@@ -174,7 +186,7 @@ function findSpeakBar() {
   await tick();
   assert.strictEqual(els['book-card'].hidden, false, '上传后应显示书籍卡片');
 
-  // 2. 点击"浓缩本章" → 渲染句子流（每个句子带喇叭按钮）
+  // 2. 点击"浓缩本章" → 渲染句子流（无句内小喇叭，长按弹出朗读菜单）
   const li0 = els['chapter-list'].querySelector('li[data-index="0"]');
   assert.ok(li0, '应有章节条目');
   li0.querySelector('.summarize-btn').click();
@@ -182,12 +194,20 @@ function findSpeakBar() {
   const summaryBox = li0.querySelector('.chapter-summary');
   const wraps = summaryBox.queryAll('.sentence-wrap');
   assert.strictEqual(wraps.length, 3, '浓缩应渲染 3 个句子');
-  assert.ok(wraps[0].querySelector('.speak-btn'), '每个句子应有朗读按钮');
+  assert.strictEqual(wraps[0].querySelector('.speak-btn'), null, '句子内不应有小喇叭');
 
-  // 3. 点击第 2 个句子的喇叭 → 从第 2 句开始朗读
+  // 3. 长按第 2 句 → 弹出朗读菜单 → 点"朗读"从第 2 句开始
   spoken.length = 0;
-  wraps[1].querySelector('.speak-btn').click();
-  assert.deepStrictEqual(spoken.slice(), ['句子二。'], '点击第 2 句喇叭应从第 2 句开始朗读');
+  const span1 = wraps[1].querySelector('.summary-sentence');
+  const md = span1._handlers['mousedown'][0];
+  md({ clientX: 10, clientY: 10 });
+  await sleep(560); // 超过 500ms 长按阈值
+  let menu = documentMock.body.queryAll('.speak-menu')[0];
+  assert.ok(menu, '长按后应弹出朗读菜单');
+  const menuSpeak = menu.queryAll('.btn').find((b) => b.textContent === '朗读');
+  assert.ok(menuSpeak, '菜单中应有"朗读"按钮');
+  menuSpeak.click();
+  assert.deepStrictEqual(spoken.slice(), ['句子二。'], '长按菜单朗读应从第 2 句开始');
   assert.strictEqual(wraps[1].classList.contains('speaking'), true, '正在朗读的句子应高亮');
   const bar = findSpeakBar();
   assert.ok(bar, '朗读时应显示浮动停止条');

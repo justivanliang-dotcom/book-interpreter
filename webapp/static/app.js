@@ -263,8 +263,6 @@
     }
   }
 
-  var SPEAK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>';
-
   // 朗读浮动条（全局唯一）
   var speakBar = document.createElement('div');
   speakBar.className = 'speak-bar';
@@ -311,7 +309,97 @@
     });
   }
 
-  // 构建"句子文本 + 朗读按钮"组合。onTextClick 收到 span 元素（用于高亮原文）。
+  // 长按句子弹出"朗读"菜单；长按 500ms 触发，触发后拦截随后的 click
+  var LONG_PRESS_MS = 500;
+  function attachLongPress(el, onLongPress) {
+    var timer = null;
+    var triggered = false;
+    var sx = 0;
+    var sy = 0;
+    function cancel() {
+      if (timer) { clearTimeout(timer); timer = null; }
+    }
+    function start(e) {
+      triggered = false;
+      var t = e.touches && e.touches[0];
+      sx = t ? t.clientX : (e.clientX || 0);
+      sy = t ? t.clientY : (e.clientY || 0);
+      cancel();
+      timer = setTimeout(function () {
+        timer = null;
+        triggered = true;
+        onLongPress();
+      }, LONG_PRESS_MS);
+    }
+    function move(e) {
+      var t = e.touches && e.touches[0];
+      var x = t ? t.clientX : (e.clientX || 0);
+      var y = t ? t.clientY : (e.clientY || 0);
+      if (Math.abs(x - sx) > 10 || Math.abs(y - sy) > 10) cancel();
+    }
+    el.addEventListener('mousedown', start);
+    el.addEventListener('touchstart', start, { passive: true });
+    el.addEventListener('mousemove', move);
+    el.addEventListener('touchmove', move, { passive: true });
+    el.addEventListener('mouseup', cancel);
+    el.addEventListener('mouseleave', cancel);
+    el.addEventListener('touchend', cancel);
+    el.addEventListener('touchcancel', cancel);
+    el.addEventListener('click', function (e) {
+      if (triggered) {
+        e.preventDefault();
+        e.stopPropagation();
+        triggered = false;
+      }
+    });
+  }
+
+  // 长按后的朗读选项菜单
+  var speakMenu = null;
+  function showSpeakMenu(anchor, text, onSpeak) {
+    hideSpeakMenu();
+    var menu = document.createElement('div');
+    menu.className = 'speak-menu';
+    var preview = document.createElement('div');
+    preview.className = 'speak-menu-preview';
+    preview.textContent = '「' + text + '」';
+    var row = document.createElement('div');
+    row.className = 'speak-menu-row';
+    var speakBtn = document.createElement('button');
+    speakBtn.className = 'btn primary small';
+    speakBtn.textContent = '朗读';
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn ghost small';
+    cancelBtn.textContent = '取消';
+    speakBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      hideSpeakMenu();
+      onSpeak();
+    });
+    cancelBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      hideSpeakMenu();
+    });
+    row.appendChild(speakBtn);
+    row.appendChild(cancelBtn);
+    menu.appendChild(preview);
+    menu.appendChild(row);
+    document.body.appendChild(menu);
+    speakMenu = menu;
+    var rect = anchor.getBoundingClientRect();
+    var mw = menu.offsetWidth || 240;
+    var vw = window.innerWidth || 800;
+    var left = Math.max(8, Math.min(vw - mw - 8, rect.left));
+    menu.style.left = left + 'px';
+    menu.style.top = (rect.bottom + 6) + 'px';
+  }
+  function hideSpeakMenu() {
+    if (speakMenu && speakMenu.parentNode) speakMenu.parentNode.removeChild(speakMenu);
+    speakMenu = null;
+  }
+  document.addEventListener('click', hideSpeakMenu);
+
+  // 构建句子元素：单击由 onTextClick 处理（如查看原文），长按弹出朗读菜单
   function buildSentenceWrap(text, onTextClick, index, wraps) {
     var wrap = document.createElement('span');
     wrap.className = 'sentence-wrap';
@@ -321,16 +409,10 @@
     if (onTextClick) {
       span.addEventListener('click', function () { onTextClick(span); });
     }
-    var btn = document.createElement('button');
-    btn.className = 'speak-btn';
-    btn.title = '从这句开始朗读';
-    btn.innerHTML = SPEAK_SVG;
-    btn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      if (window.TTS && wraps.length) speakSentences(wraps, index);
+    attachLongPress(span, function () {
+      showSpeakMenu(span, text, function () { speakSentences(wraps, index); });
     });
     wrap.appendChild(span);
-    wrap.appendChild(btn);
     return wrap;
   }
 

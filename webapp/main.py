@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hmac
 import os
 from pathlib import Path
@@ -28,6 +29,7 @@ from book_interpreter.loaders import SUPPORTED_EXTENSIONS, UnsupportedFormatErro
 from book_interpreter.parser import parse_book
 from book_interpreter.qa import answer_question
 from webapp.ratelimit import limiter
+from webapp.tts import TTSUnavailable, synthesize_batch, tts_configured
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -110,6 +112,14 @@ class RawOut(BaseModel):
     text: str
 
 
+class TtsBatchIn(BaseModel):
+    texts: list[str]
+
+
+class TtsBatchOut(BaseModel):
+    audios: list[str]
+
+
 def _get_record(book_id: str) -> dict[str, Any]:
     record = _books.get(book_id)
     if record is None:
@@ -128,6 +138,29 @@ def verify_auth(payload: AuthIn) -> dict:
     if not token or hmac.compare_digest(payload.token, token):
         return {"ok": True}
     raise HTTPException(status_code=401, detail="访问口令错误")
+
+
+@app.get("/api/tts/status")
+def tts_status() -> dict:
+    """豆包语音是否已配置，前端据此决定优先使用在线自然女声。"""
+    return {"available": tts_configured()}
+
+
+@app.post("/api/tts/batch", response_model=TtsBatchOut)
+def tts_batch(payload: TtsBatchIn) -> TtsBatchOut:
+    """批量合成朗读音频（每段一个 mp3，base64 返回）。"""
+    texts = [(t or "").strip() for t in payload.texts if (t or "").strip()]
+    if not texts:
+        raise HTTPException(status_code=400, detail="合成文本不能为空")
+    if len(texts) > 8:
+        raise HTTPException(status_code=400, detail="单次最多合成 8 段文本")
+    try:
+        audios = synthesize_batch(texts)
+    except TTSUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return TtsBatchOut(
+        audios=[base64.b64encode(a).decode("ascii") for a in audios]
+    )
 
 
 @app.post("/api/books", response_model=BookOut)
