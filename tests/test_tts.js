@@ -127,6 +127,9 @@ const TTS = context.window.TTS;
       fetch: fetchMock,
       speechSynthesis: speechMock,
     },
+    localStorage: {
+      getItem: (k) => (k === 'book_interpreter_token' ? 't123' : null),
+    },
     SpeechSynthesisUtterance: function (text) { this.text = text; },
     Audio: AudioMock,
     URL: { createObjectURL: () => 'blob:mock-audio', revokeObjectURL: () => {} },
@@ -155,6 +158,11 @@ const TTS = context.window.TTS;
     '9 句从第 2 句起 8 句一批仅需 1 批');
   const batch1 = fetchCalls.find((c) => c.url === '/api/tts/batch' && c.options.body.includes('二。'));
   assert.ok(batch1, '第一批应包含第 2 句');
+  assert.strictEqual(
+    batch1.options.headers['X-Access-Token'],
+    't123',
+    'batch 请求应携带访问口令，否则服务器 401 会回退浏览器机械声'
+  );
   assert.strictEqual(audioInstances.length, 1, '应创建唯一 Audio 实例');
   assert.strictEqual(audioInstances[0].src, 'blob:mock-audio', '应加载预取音频');
   assert.strictEqual(audioInstances[0].playCalls, 1, '应开始播放');

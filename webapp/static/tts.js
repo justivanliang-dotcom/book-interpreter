@@ -142,6 +142,16 @@
     return URL.createObjectURL(blob);
   }
 
+  // 带访问口令的请求头：与 app.js 一致，从 localStorage 读取
+  function authHeaders(extra) {
+    var h = Object.assign({}, extra);
+    if (typeof localStorage !== 'undefined') {
+      var t = localStorage.getItem('book_interpreter_token');
+      if (t) h['X-Access-Token'] = t;
+    }
+    return h;
+  }
+
   function prefetch(items, start) {
     for (var i = start; i < items.length; i += BATCH_SIZE) {
       if (pending[i] !== undefined) continue;
@@ -149,7 +159,7 @@
         var slice = items.slice(from, from + BATCH_SIZE);
         pending[from] = window.fetch('/api/tts/batch', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ texts: slice })
         }).then(function (r) {
           if (!r.ok) throw new Error('tts batch http ' + r.status);
