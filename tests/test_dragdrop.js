@@ -51,13 +51,18 @@ function dispatch(type, evt) {
   for (const fn of handlers[type] || []) fn(e);
 }
 
-let fetchCalls = 0;
-function fetchMock() {
-  fetchCalls++;
+let fetchCalls = [];
+function fetchMock(url, options) {
+  const method = (options && options.method) || 'GET';
+  fetchCalls.push(method + ' ' + url);
+  const isList = url === '/api/books' && method === 'GET';
   return Promise.resolve({
     ok: true,
-    json: () => Promise.resolve({ id: 'b1', title: '测试书', filename: 'a.epub', chapters: [] }),
+    json: () => Promise.resolve(isList ? [] : { id: 'b1', title: '测试书', filename: 'a.epub', chapters: [] }),
   });
+}
+function uploadCount() {
+  return fetchCalls.filter((c) => c.startsWith('POST')).length;
 }
 class FormDataMock { append() {} }
 
@@ -95,7 +100,7 @@ assert.ok(overlay, '拖放提示层应被创建');
   assert.strictEqual(overlay.hidden, false, '再次拖入提示层应显示');
   dispatch('drop', { dataTransfer: { files: [{ name: 'book.epub', size: 100 }] } });
   assert.strictEqual(overlay.hidden, true, 'drop 后提示层必须立即隐藏');
-  assert.strictEqual(fetchCalls, 1, 'drop 后应发起上传请求');
+  assert.strictEqual(uploadCount(), 1, 'drop 后应发起 1 次上传请求');
 
   // 6. 等待异步上传完成，状态提示更新
   await new Promise((r) => setTimeout(r, 20));
@@ -108,7 +113,7 @@ assert.ok(overlay, '拖放提示层应被创建');
   dispatch('dragenter');
   dispatch('drop', { dataTransfer: { files: [] } });
   assert.strictEqual(overlay.hidden, true, '无文件 drop 提示层也应隐藏');
-  assert.strictEqual(fetchCalls, 1, '无文件 drop 不应发起上传');
+  assert.strictEqual(uploadCount(), 1, '无文件 drop 不应发起上传');
 
   console.log('test_dragdrop.js 全部通过');
 })().catch((err) => {

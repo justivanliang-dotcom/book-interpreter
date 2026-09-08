@@ -5,7 +5,8 @@
     interpreting: false,
     chapterRatios: {},
     chapterSummaries: {},
-    chapterPlain: {}
+    chapterPlain: {},
+    chapterMeta: {}
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -18,6 +19,8 @@
   var chapterList = $('chapter-list');
   var interpretBtn = $('interpret-btn');
   var emptyState = $('empty-state');
+  var savedBooks = $('saved-books');
+  var bookList = $('book-list');
   var report = $('report');
   var overview = $('overview');
   var keyPoints = $('key-points');
@@ -153,14 +156,24 @@
     state.chapterRatios = {};
     state.chapterSummaries = {};
     state.chapterPlain = {};
+    state.chapterMeta = {};
+    book.chapters.forEach(function (ch, i) {
+      state.chapterMeta[i] = {
+        has_summary: !!ch.has_summary,
+        summary_ratio: ch.summary_ratio != null ? Number(ch.summary_ratio) : null,
+        has_plain: !!ch.has_plain,
+        plain_ratio: ch.plain_ratio != null ? Number(ch.plain_ratio) : null
+      };
+    });
     bookTitle.textContent = book.title;
     bookFilename.textContent = book.filename;
     chapterList.innerHTML = '';
     book.chapters.forEach(function (ch, i) {
-      chapterList.appendChild(buildChapterItem(i, ch.title));
+      chapterList.appendChild(buildChapterItem(i, ch.title, state.chapterMeta[i]));
     });
     bookCard.hidden = false;
     emptyState.hidden = true;
+    savedBooks.hidden = true;
     report.hidden = true;
     qaCard.hidden = true;
     interpretBtn.disabled = false;
@@ -168,7 +181,60 @@
     questionInput.value = '';
   }
 
-  function buildChapterItem(index, title) {
+  // ---------- 已上传书籍恢复 ----------
+
+  function renderBookList(items) {
+    bookList.innerHTML = '';
+    if (!items.length) {
+      savedBooks.hidden = true;
+      return;
+    }
+    items.forEach(function (item) {
+      var li = document.createElement('li');
+      li.className = 'book-list-item';
+      var name = document.createElement('span');
+      name.className = 'book-list-title';
+      name.textContent = item.title;
+      var meta = document.createElement('span');
+      meta.className = 'book-list-meta';
+      meta.textContent = item.filename + ' · ' + item.chapters.length + ' 章';
+      li.appendChild(name);
+      li.appendChild(meta);
+      li.addEventListener('click', function () { openSavedBook(item); });
+      bookList.appendChild(li);
+    });
+    savedBooks.hidden = false;
+    emptyState.hidden = false;
+  }
+
+  function openSavedBook(item) {
+    localStorage.setItem('book_interpreter_last', item.id);
+    renderBook(item);
+    savedBooks.hidden = false; // 保留列表，方便切换其他已上传书籍
+  }
+
+  function loadSavedBooks() {
+    api('/api/books')
+      .then(function (items) {
+        renderBookList(items);
+        var lastId = localStorage.getItem('book_interpreter_last');
+        var last = null;
+        if (lastId) {
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].id === lastId) { last = items[i]; break; }
+          }
+        }
+        if (last) {
+          openSavedBook(last);
+        } else if (items.length === 1) {
+          openSavedBook(items[0]);
+        }
+      })
+      .catch(function () { /* 加载失败保持空状态 */ });
+  }
+
+  function buildChapterItem(index, title, meta) {
+    meta = meta || {};
     var li = document.createElement('li');
     li.className = 'chapter-item';
     li.dataset.index = String(index);
@@ -188,11 +254,12 @@
     label.textContent = '浓缩比例';
     var select = document.createElement('select');
     select.className = 'chapter-ratio';
+    var defaultRatio = meta.summary_ratio != null ? meta.summary_ratio : 0.1;
     [0.05, 0.1, 0.25, 0.5, 0.75, 1].forEach(function (v) {
       var opt = document.createElement('option');
       opt.value = String(v);
       opt.textContent = Math.round(v * 100) + '%';
-      if (v === 0.1) opt.selected = true;
+      if (v === defaultRatio) opt.selected = true;
       select.appendChild(opt);
     });
     var btn = document.createElement('button');
@@ -243,7 +310,8 @@
     var expand = li.querySelector('.chapter-expand');
     expand.hidden = !expand.hidden;
     if (expand.hidden) return;
-    // 展开时只显示标题与比例选择，不自动浓缩；有缓存则展示缓存
+    restoreChapterCaches(index);
+    // 展开时显示已有缓存；restoreChapterCaches 会异步拉取落盘缓存
     var summaryBox = li.querySelector('.chapter-summary');
     var cached = state.chapterSummaries[index];
     if (cached) {
@@ -260,6 +328,18 @@
     } else {
       plainBox.hidden = true;
       plainBox.innerHTML = '';
+    }
+  }
+
+  // 重新打开书后，展开章节时自动拉取上次落盘的浓缩/讲解缓存（命中后端缓存，秒回）
+  function restoreChapterCaches(index) {
+    var meta = state.chapterMeta[index];
+    if (!meta) return;
+    if (meta.has_summary && !state.chapterSummaries[index]) {
+      condenseChapterAt(index, meta.summary_ratio);
+    }
+    if (meta.has_plain && !state.chapterPlain[index + ':' + meta.plain_ratio]) {
+      explainPlainAt(index, meta.plain_ratio);
     }
   }
 
@@ -500,10 +580,15 @@
     var li = chapterList.querySelector('li[data-index="' + index + '"]');
     if (!li) return;
     var select = li.querySelector('.chapter-ratio');
+    condenseChapterAt(index, parseFloat(select.value));
+  }
+
+  function condenseChapterAt(index, ratio) {
+    var li = chapterList.querySelector('li[data-index="' + index + '"]');
+    if (!li) return;
     var btn = li.querySelector('.summarize-btn');
     var summaryBox = li.querySelector('.chapter-summary');
     var progressWrap = li.querySelector('.progress-wrap');
-    var ratio = parseFloat(select.value);
     state.chapterRatios[index] = ratio;
     var cached = state.chapterSummaries[index];
     if (cached && cached.ratio === ratio) {
@@ -539,7 +624,12 @@
     var li = chapterList.querySelector('li[data-index="' + index + '"]');
     if (!li) return;
     var select = li.querySelector('.chapter-ratio');
-    var ratio = parseFloat(select.value);
+    explainPlainAt(index, parseFloat(select.value));
+  }
+
+  function explainPlainAt(index, ratio) {
+    var li = chapterList.querySelector('li[data-index="' + index + '"]');
+    if (!li) return;
     var btn = li.querySelector('.plain-btn');
     var plainBox = li.querySelector('.chapter-plain');
     var progressWrap = li.querySelector('.progress-wrap');
@@ -628,7 +718,9 @@
     form.append('file', file);
     api('/api/books', { method: 'POST', body: form })
       .then(function (book) {
+        localStorage.setItem('book_interpreter_last', book.id);
         renderBook(book);
+        loadSavedBooks();
         setStatus('解析完成，共 ' + book.chapters.length + ' 个章节');
       })
       .catch(function (err) {
@@ -740,4 +832,7 @@
     if (!state.bookId) return;
     window.location.href = '/api/books/' + state.bookId + '/report?format=' + fmt;
   }
+
+  // 页面加载时恢复已上传书籍；有最近打开的书则自动打开
+  loadSavedBooks();
 })();

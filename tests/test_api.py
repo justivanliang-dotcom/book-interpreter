@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from book_interpreter.llm import LLMError
 from tests.conftest import FakeLLM, simple_pdf
-from webapp.main import _books, _plain_cache, _summary_cache, app, get_llm
+from webapp.main import _books, app, get_llm
 from webapp.ratelimit import limiter
 
 client = TestClient(app)
@@ -32,13 +32,9 @@ class CountingLLM(FakeLLM):
 @pytest.fixture(autouse=True)
 def clear_books():
     _books.clear()
-    _summary_cache.clear()
-    _plain_cache.clear()
     limiter.reset()
     yield
     _books.clear()
-    _summary_cache.clear()
-    _plain_cache.clear()
     limiter.reset()
 
 

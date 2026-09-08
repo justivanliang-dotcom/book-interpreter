@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 
 import pytest
 
-from book_interpreter.llm import LLMClient
+# 测试进程内导入 webapp.main 时，持久化目录指向进程级临时目录，
+# 避免读取/写入真实数据目录（webapp/data）
+os.environ["BOOK_STATE_DIR"] = tempfile.mkdtemp(prefix="book-test-state-")
+
+from book_interpreter.llm import LLMClient  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolated_state(monkeypatch, tmp_path):
+    """每个测试使用独立的持久化目录，并清空内存书籍表。"""
+    import webapp.main as main_mod
+    import webapp.persistence as persistence
+
+    monkeypatch.setattr(persistence, "STATE_DIR", tmp_path / "state")
+    main_mod._books.clear()
+    yield
+    main_mod._books.clear()
 
 
 def simple_pdf(text: str) -> bytes:

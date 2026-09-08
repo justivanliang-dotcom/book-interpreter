@@ -29,17 +29,15 @@ from book_interpreter.loaders import SUPPORTED_EXTENSIONS, UnsupportedFormatErro
 from book_interpreter.parser import parse_book
 from book_interpreter.qa import answer_question
 from webapp.ratelimit import limiter
+from webapp.persistence import load_state, save_state
 from webapp.tts import TTSUnavailable, synthesize_batch, tts_configured
 
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="书籍解读器")
 
-# 内存存储：book_id -> 记录
-_books: dict[str, dict[str, Any]] = {}
-# 服务端 LLM 结果缓存：键为 (book_id, chapter_index, ratio)
-_summary_cache: dict[tuple[str, int, float], dict[str, Any]] = {}
-_plain_cache: dict[tuple[str, int, float], str] = {}
+# 内存存储：book_id -> 记录（上传/浓缩/讲解结果同时持久化到磁盘）
+_books: dict[str, dict[str, Any]] = load_state()
 
 
 def _get_access_token() -> str:
@@ -75,6 +73,21 @@ class BookOut(BaseModel):
     title: str
     filename: str
     chapters: list[ChapterOut]
+
+
+class BookListChapterOut(BaseModel):
+    title: str
+    has_summary: bool = False
+    summary_ratio: float | None = None
+    has_plain: bool = False
+    plain_ratio: float | None = None
+
+
+class BookListItemOut(BaseModel):
+    id: str
+    title: str
+    filename: str
+    chapters: list[BookListChapterOut]
 
 
 class AskIn(BaseModel):
@@ -127,6 +140,18 @@ def _get_record(book_id: str) -> dict[str, Any]:
     return record
 
 
+def _cache_key(ratio: float) -> str:
+    return str(round(ratio, 6))
+
+
+def _record_caches(record: dict[str, Any]) -> dict[str, Any]:
+    """补齐记录中的缓存字段（兼容旧内存态记录）。"""
+    record.setdefault("last_ratios", {})
+    record.setdefault("summaries", {})
+    record.setdefault("plains", {})
+    return record
+
+
 class AuthIn(BaseModel):
     token: str
 
@@ -163,6 +188,36 @@ def tts_batch(payload: TtsBatchIn) -> TtsBatchOut:
     )
 
 
+@app.get("/api/books", response_model=list[BookListItemOut])
+def list_books() -> list[BookListItemOut]:
+    """返回已上传书籍列表，含各章是否已有浓缩/讲解缓存及最近比例。"""
+    items = []
+    for book_id, record in _books.items():
+        record = _record_caches(record)
+        book = record["book"]
+        chapters = []
+        for i, chapter in enumerate(book.chapters):
+            last = record["last_ratios"].get(i, {})
+            chapters.append(
+                BookListChapterOut(
+                    title=chapter.title,
+                    has_summary=bool(record["summaries"].get(i)),
+                    summary_ratio=last.get("summary"),
+                    has_plain=bool(record["plains"].get(i)),
+                    plain_ratio=last.get("plain"),
+                )
+            )
+        items.append(
+            BookListItemOut(
+                id=book_id,
+                title=book.title,
+                filename=record["filename"],
+                chapters=chapters,
+            )
+        )
+    return items
+
+
 @app.post("/api/books", response_model=BookOut)
 async def upload_book(file: UploadFile = File(...)) -> BookOut:
     raw = await file.read()
@@ -185,7 +240,12 @@ async def upload_book(file: UploadFile = File(...)) -> BookOut:
         "filename": file.filename,
         "raw_text": text,
         "interpretation": None,
+        "titles_extracted": False,
+        "last_ratios": {},
+        "summaries": {},
+        "plains": {},
     }
+    save_state(_books)
     return BookOut(
         id=book_id,
         title=book.title,
@@ -217,6 +277,7 @@ def interpret(book_id: str, llm: LLMClient = Depends(get_llm)) -> InterpretOut:
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
     record["interpretation"] = interp
+    save_state(_books)
     return InterpretOut(
         overview=interp.overview,
         key_points=interp.key_points,
@@ -242,8 +303,8 @@ def summarize_chapter_api(
     chapter = book.chapters[chapter_index]
     if not chapter.content.strip():
         return ChapterSummarizeOut(title=chapter.title, summary="（本章无内容）")
-    cache_key = (book_id, chapter_index, ratio)
-    cached = _summary_cache.get(cache_key)
+    record = _record_caches(record)
+    cached = record["summaries"].get(chapter_index, {}).get(_cache_key(ratio))
     if cached is not None:
         return ChapterSummarizeOut(**cached)
     if not record.get("titles_extracted"):
@@ -261,7 +322,9 @@ def summarize_chapter_api(
         "word_count": count_chars(summary),
         "target_words": summary_target_words(chapter.content, ratio),
     }
-    _summary_cache[cache_key] = result
+    record["summaries"].setdefault(chapter_index, {})[_cache_key(ratio)] = result
+    record["last_ratios"].setdefault(chapter_index, {})["summary"] = ratio
+    save_state(_books)
     return ChapterSummarizeOut(**result)
 
 
@@ -280,8 +343,8 @@ def explain_chapter_api(
     chapter = book.chapters[chapter_index]
     if not chapter.content.strip():
         return PlainOut(title=chapter.title, text="（本章无内容）")
-    cache_key = (book_id, chapter_index, ratio)
-    cached = _plain_cache.get(cache_key)
+    record = _record_caches(record)
+    cached = record["plains"].get(chapter_index, {}).get(_cache_key(ratio))
     if cached is not None:
         return PlainOut(title=chapter.title, text=cached)
     if not record.get("titles_extracted"):
@@ -292,7 +355,9 @@ def explain_chapter_api(
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
     chapter.plain = text
-    _plain_cache[cache_key] = text
+    record["plains"].setdefault(chapter_index, {})[_cache_key(ratio)] = text
+    record["last_ratios"].setdefault(chapter_index, {})["plain"] = ratio
+    save_state(_books)
     return PlainOut(title=chapter.title, text=text)
 
 

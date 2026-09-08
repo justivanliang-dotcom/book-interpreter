@@ -128,6 +128,10 @@ function fetchMock(url, options) {
   if (url === '/api/books' && options.method === 'POST') {
     return okJson({ id: 'b1', title: '测试书', filename: 'a.md', chapters: [{ title: '第一章' }, { title: '第二章' }] });
   }
+  if (url === '/api/books' && (!options.method || options.method === 'GET')) {
+    // 页面加载时恢复已上传书籍列表
+    return okJson([]);
+  }
   if (url.indexOf('/summarize') >= 0) {
     return okJson({
       title: '第一章',
