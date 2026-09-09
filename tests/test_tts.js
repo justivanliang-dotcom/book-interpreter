@@ -322,6 +322,58 @@ const TTS = context.window.TTS;
   assert.deepStrictEqual(spoken.slice(), [], '重探测成功应走服务器模式，不再用浏览器语音');
   assert.ok(audioInstances.length > audioBefore, '服务器模式应创建 Audio 播放自然女声');
 
+  // 18. 含 ** 的空句被清洗后索引仍对齐：高亮的是原始索引，不是清洗后的
+  const progressCalls = [];
+  const ctx8 = {
+    window: {
+      fetch: (url, options) => {
+        if (url === '/api/tts/status') {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ available: true }) });
+        }
+        if (url === '/api/tts/batch') {
+          const texts = JSON.parse(options.body).texts || [];
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ audios: texts.map((t) => b64(t)) }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      },
+      speechSynthesis: speechMock,
+    },
+    localStorage: { getItem: () => 't123' },
+    SpeechSynthesisUtterance: function (text) { this.text = text; },
+    Audio: AudioMock,
+    URL: { createObjectURL: () => 'blob:mock', revokeObjectURL: () => {} },
+    atob: (s) => Buffer.from(s, 'base64').toString('binary'),
+    Blob: globalThis.Blob,
+  };
+  vm.createContext(ctx8);
+  vm.runInContext(src, ctx8, { filename: 'tts.js' });
+  const TTS8 = ctx8.window.TTS;
+  await new Promise((r) => TTS8.probeServer(r));
+  // 5 句话：第 2 句只有 **（清洗后为空被删除），第 4 句有 **加粗**
+  const mixed = [
+    '第一句正常。',
+    '**',
+    '第三句也正常。',
+    '**加粗的第四句。**',
+    '第五句正常。',
+  ];
+  TTS8.speakFrom(mixed, 0, {
+    onProgress: function (i) { progressCalls.push(i); },
+  });
+  // 推进 4 句：每次 tick 后触发 onended 让播放器推进到下一句
+  for (let k = 0; k < 4; k++) {
+    await tick();
+    const lastAudio = audioInstances[audioInstances.length - 1];
+    if (lastAudio && lastAudio.onended) lastAudio.onended();
+  }
+  // 清洗后 items = [第一句, 第三句, 加粗的第四句, 第五句]（4 句）
+  // 但 onProgress 应收到原始索引 0,2,3,4（不是 0,1,2,3）
+  assert.deepStrictEqual(progressCalls.slice(), [0, 2, 3, 4],
+    '含**空句被删除后，高亮索引应映射回原始索引 0,2,3,4，而不是 0,1,2,3');
+
   console.log('test_tts.js 全部通过');
 })().catch((err) => {
   console.error(err);

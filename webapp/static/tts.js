@@ -240,18 +240,51 @@
   function speakFrom(sentences, start, opts) {
     opts = opts || {};
     stop();
-    var items = normItems(sentences);
+    // Build items with original-index mapping — cleaning markdown can turn
+    // a sentence into empty string (e.g. sentence was only "**"), and filtering
+    // those out would shift indices, causing highlight/audio desync.
+    var rawItems = (sentences || [])
+      .map(function (s) { return typeof s === 'string' ? s : (s && s.text ? s.text : ''); })
+      .map(cleanText);
+    var items = [];
+    var origIndices = [];
+    rawItems.forEach(function (text, i) {
+      if (text && text.trim()) {
+        items.push(text);
+        origIndices.push(i);
+      }
+    });
     if (!items.length) return;
-    if (start < 0 || start >= items.length) start = 0;
+    // Convert start from original sentence index to cleaned items index
+    var cleanedStart = 0;
+    for (var j = 0; j < origIndices.length; j++) {
+      if (origIndices[j] >= start) { cleanedStart = j; break; }
+    }
+    if (cleanedStart >= items.length) cleanedStart = 0;
+    // Wrap callbacks to map cleaned index → original index for highlighting
+    var userStart = opts.onStart;
+    if (userStart) {
+      opts.onStart = function (ci) {
+        var oi = origIndices[ci];
+        if (oi !== undefined) userStart(oi);
+      };
+    }
+    var userProgress = opts.onProgress;
+    if (userProgress) {
+      opts.onProgress = function (ci) {
+        var oi = origIndices[ci];
+        if (oi !== undefined) userProgress(oi);
+      };
+    }
     if (serverAvailable === true) {
-      speakServer(items, start, opts);
+      speakServer(items, cleanedStart, opts);
       return;
     }
     // 未探测或此前探测失败：每次朗读前强制重新探测，
     // 尽量走服务器自然女声（晓晓），只有确认不可用才回退浏览器语音
     probeServer(function (avail) {
-      if (avail) speakServer(items, start, opts);
-      else browserSpeakFrom(items, start, opts);
+      if (avail) speakServer(items, cleanedStart, opts);
+      else browserSpeakFrom(items, cleanedStart, opts);
     }, true);
   }
 
