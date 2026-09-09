@@ -222,6 +222,13 @@ body {
   font-size: 0.78rem;
   color: var(--accent2);
   margin-bottom: 0.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.chapter-plain .regen-row {
+  margin: 0;
 }
 .chapter-plain .plain-body {
   white-space: pre-wrap;
@@ -267,6 +274,11 @@ body {
   font-size: 0.75rem;
   color: var(--muted);
   margin-bottom: 0.4rem;
+}
+.regen-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.15rem 0 0.4rem;
 }
 .auth-overlay {
   position: fixed;

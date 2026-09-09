@@ -36,6 +36,7 @@ function matches(el, sel) {
   if (sel === '.plain-btn') return cls.indexOf('plain-btn') >= 0;
   if (sel === '.chapter-ratio') return cls.indexOf('chapter-ratio') >= 0;
   if (sel === '.progress-wrap') return cls.indexOf('progress-wrap') >= 0;
+  if (sel === '.regen-btn') return cls.indexOf('regen-btn') >= 0;
   if (sel === '.btn') return cls.indexOf('btn') >= 0;
   return false;
 }
@@ -323,6 +324,26 @@ function findSpeakBar() {
   spoken.length = 0;
   context.window.TTS.speakFrom(['普通句子，没有符号。'], 0, {});
   assert.deepStrictEqual(spoken.slice(), ['普通句子，没有符号。'], '无符号文本应原样朗读');
+
+  // 10. 重新生成按钮：浓缩与讲解内容顶部有"重新生成"，点击发起 refresh=true 请求
+  const regenBefore = fetchCalls.filter((c) => c.url.indexOf('refresh=true') >= 0).length;
+  const summaryRegen = summaryBox.querySelector('.regen-btn');
+  assert.ok(summaryRegen, '浓缩内容应显示"重新生成"按钮');
+  assert.strictEqual(summaryRegen.textContent, '重新生成');
+  summaryRegen.click();
+  await tick();
+  let refreshCalls = fetchCalls.filter((c) => c.url.indexOf('refresh=true') >= 0);
+  assert.strictEqual(refreshCalls.length, regenBefore + 1, '点击浓缩重新生成应发起带 refresh=true 的请求');
+  assert.ok(refreshCalls[refreshCalls.length - 1].url.indexOf('/summarize') >= 0, '浓缩重新生成应请求浓缩接口');
+  assert.strictEqual(summaryBox.queryAll('.sentence-wrap').length, 3, '重新生成后浓缩内容应重新渲染');
+
+  const plainRegen = plainBox.querySelector('.regen-btn');
+  assert.ok(plainRegen, '讲解内容应显示"重新生成"按钮');
+  plainRegen.click();
+  await tick();
+  refreshCalls = fetchCalls.filter((c) => c.url.indexOf('refresh=true') >= 0);
+  assert.strictEqual(refreshCalls.length, regenBefore + 2, '点击讲解重新生成也应带 refresh=true');
+  assert.ok(refreshCalls[refreshCalls.length - 1].url.indexOf('/plain') >= 0, '讲解重新生成应请求讲解接口');
 
   console.log('test_tts_app.js 全部通过');
 })().catch((err) => {

@@ -305,6 +305,7 @@ def summarize_chapter_api(
     book_id: str,
     chapter_index: int,
     ratio: float = Query(0.25, ge=0.05, le=1.0),
+    refresh: bool = Query(False, description="true 时跳过缓存，强制重新生成"),
     llm: LLMClient = Depends(get_llm),
 ) -> ChapterSummarizeOut:
     """按比例浓缩指定章节，长度上限为原文字数。"""
@@ -317,7 +318,7 @@ def summarize_chapter_api(
         return ChapterSummarizeOut(title=chapter.title, summary="（本章无内容）")
     record = _record_caches(record)
     cached = record["summaries"].get(chapter_index, {}).get(_cache_key(ratio))
-    if cached is not None:
+    if cached is not None and not refresh:
         return ChapterSummarizeOut(**cached)
     if not record.get("titles_extracted"):
         extract_chapter_titles(llm, book)
@@ -345,6 +346,7 @@ def explain_chapter_api(
     book_id: str,
     chapter_index: int,
     ratio: float = Query(0.25, ge=0.05, le=1.0),
+    refresh: bool = Query(False, description="true 时跳过缓存，强制重新生成"),
     llm: LLMClient = Depends(get_llm),
 ) -> PlainOut:
     """按浓缩比例先浓缩章节，再用初中生词汇对浓缩结果做通俗易懂的讲解。"""
@@ -357,7 +359,7 @@ def explain_chapter_api(
         return PlainOut(title=chapter.title, text="（本章无内容）")
     record = _record_caches(record)
     cached = record["plains"].get(chapter_index, {}).get(_cache_key(ratio))
-    if cached is not None:
+    if cached is not None and not refresh:
         return PlainOut(title=chapter.title, text=cached)
     if not record.get("titles_extracted"):
         extract_chapter_titles(llm, book)

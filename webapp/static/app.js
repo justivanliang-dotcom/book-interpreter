@@ -350,7 +350,7 @@
     var summaryBox = li.querySelector('.chapter-summary');
     var cached = state.chapterSummaries[index];
     if (cached) {
-      renderSummary(summaryBox, cached);
+      renderSummary(summaryBox, cached, index, cached.ratio);
     } else {
       summaryBox.innerHTML = '<div class="hint">点击「浓缩本章」生成浓缩内容</div>';
     }
@@ -359,7 +359,7 @@
     var cacheKey = index + ':' + ratio;
     var cachedPlain = state.chapterPlain[cacheKey];
     if (cachedPlain) {
-      renderPlain(plainBox, cachedPlain);
+      renderPlain(plainBox, cachedPlain, index, ratio);
     } else {
       plainBox.hidden = true;
       plainBox.innerHTML = '';
@@ -545,7 +545,7 @@
     return out;
   }
 
-  function renderSummary(container, data) {
+  function renderSummary(container, data, index, ratio) {
     container.innerHTML = '';
     if (data.target_words && data.word_count) {
       var meta = document.createElement('div');
@@ -553,6 +553,16 @@
       var pct = Math.round(data.word_count / data.target_words * 100);
       meta.textContent = '实际 ' + data.word_count + ' 字 / 目标 ' + data.target_words + ' 字（' + pct + '%）';
       container.appendChild(meta);
+    }
+    if (index != null && ratio != null) {
+      var toolRow = document.createElement('div');
+      toolRow.className = 'regen-row';
+      var regenBtn = document.createElement('button');
+      regenBtn.className = 'btn ghost small regen-btn';
+      regenBtn.textContent = '重新生成';
+      regenBtn.addEventListener('click', function () { condenseChapterAt(index, ratio, true); });
+      toolRow.appendChild(regenBtn);
+      container.appendChild(toolRow);
     }
     var sentences = data.sentences;
     if (sentences && sentences.length) {
@@ -630,7 +640,7 @@
     condenseChapterAt(index, parseFloat(select.value));
   }
 
-  function condenseChapterAt(index, ratio) {
+  function condenseChapterAt(index, ratio, refresh) {
     var li = chapterList.querySelector('li[data-index="' + index + '"]');
     if (!li) return;
     var btn = li.querySelector('.summarize-btn');
@@ -638,14 +648,14 @@
     var progressWrap = li.querySelector('.progress-wrap');
     state.chapterRatios[index] = ratio;
     var cached = state.chapterSummaries[index];
-    if (cached && cached.ratio === ratio) {
-      renderSummary(summaryBox, cached);
+    if (!refresh && cached && cached.ratio === ratio) {
+      renderSummary(summaryBox, cached, index, ratio);
       return;
     }
     summaryBox.innerHTML = '<div class="loading">浓缩中...</div>';
     btn.disabled = true;
     progressWrap.hidden = false;
-    api('/api/books/' + state.bookId + '/chapters/' + index + '/summarize?ratio=' + ratio, { method: 'POST' })
+    api('/api/books/' + state.bookId + '/chapters/' + index + '/summarize?ratio=' + ratio + (refresh ? '&refresh=true' : ''), { method: 'POST' })
       .then(function (data) {
         state.chapterSummaries[index] = {
           ratio: ratio,
@@ -656,7 +666,7 @@
         };
         var head = li.querySelector('.chapter-head');
         if (head && head.textContent !== data.title) head.textContent = data.title;
-        renderSummary(summaryBox, data);
+        renderSummary(summaryBox, data, index, ratio);
       })
       .catch(function (err) {
         summaryBox.innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
@@ -674,7 +684,7 @@
     explainPlainAt(index, parseFloat(select.value));
   }
 
-  function explainPlainAt(index, ratio) {
+  function explainPlainAt(index, ratio, refresh) {
     var li = chapterList.querySelector('li[data-index="' + index + '"]');
     if (!li) return;
     var btn = li.querySelector('.plain-btn');
@@ -682,20 +692,20 @@
     var progressWrap = li.querySelector('.progress-wrap');
     var cacheKey = index + ':' + ratio;
     var cached = state.chapterPlain[cacheKey];
-    if (cached) {
-      renderPlain(plainBox, cached);
+    if (!refresh && cached) {
+      renderPlain(plainBox, cached, index, ratio);
       return;
     }
     plainBox.hidden = false;
     plainBox.innerHTML = '<div class="loading">讲解中...</div>';
     btn.disabled = true;
     progressWrap.hidden = false;
-    api('/api/books/' + state.bookId + '/chapters/' + index + '/plain?ratio=' + ratio, { method: 'POST' })
+    api('/api/books/' + state.bookId + '/chapters/' + index + '/plain?ratio=' + ratio + (refresh ? '&refresh=true' : ''), { method: 'POST' })
       .then(function (data) {
         state.chapterPlain[cacheKey] = data.text;
         var head = li.querySelector('.chapter-head');
         if (head && head.textContent !== data.title) head.textContent = data.title;
-        renderPlain(plainBox, data.text);
+        renderPlain(plainBox, data.text, index, ratio);
       })
       .catch(function (err) {
         plainBox.innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
@@ -706,12 +716,22 @@
       });
   }
 
-  function renderPlain(box, text) {
+  function renderPlain(box, text, index, ratio) {
     box.hidden = false;
     box.innerHTML = '';
     var label = document.createElement('div');
     label.className = 'plain-label';
     label.textContent = '大白话解读';
+    if (index != null && ratio != null) {
+      var toolRow = document.createElement('div');
+      toolRow.className = 'regen-row';
+      var regenBtn = document.createElement('button');
+      regenBtn.className = 'btn ghost small regen-btn';
+      regenBtn.textContent = '重新生成';
+      regenBtn.addEventListener('click', function () { explainPlainAt(index, ratio, true); });
+      toolRow.appendChild(regenBtn);
+      label.appendChild(toolRow);
+    }
     var body = document.createElement('div');
     body.className = 'plain-body';
     var sentences = splitPlainSentences(text);

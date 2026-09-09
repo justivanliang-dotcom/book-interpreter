@@ -368,6 +368,50 @@ def test_plain_cache_hits():
         app.dependency_overrides[get_llm] = lambda: FakeLLM()
 
 
+def test_summarize_refresh_bypasses_cache():
+    """refresh=true 跳过缓存，强制重新调用 LLM 并覆盖结果。"""
+    counting = CountingLLM()
+    app.dependency_overrides[get_llm] = lambda: counting
+    try:
+        # 章节内容需足够长，确保浓缩真正调用 LLM（短内容直接返回原文）
+        book = _upload(content="# 测试书\n\n## 第一章\n" + "内容" * 1000).json()
+        url = f"/api/books/{book['id']}/chapters/0/summarize?ratio=0.25"
+        r1 = client.post(url)
+        assert r1.status_code == 200
+        n1 = len(counting.prompts)
+        assert n1 > 0, "浓缩应真正调用 LLM"
+        # 不带 refresh 命中缓存
+        r2 = client.post(url)
+        assert len(counting.prompts) == n1
+        # 带 refresh 强制重新生成
+        r3 = client.post(url + "&refresh=true")
+        assert r3.status_code == 200
+        assert len(counting.prompts) > n1, "refresh=true 应重新调用 LLM"
+        # 再次不带 refresh 命中的是新结果
+        r4 = client.post(url)
+        assert r4.json()["summary"] == r3.json()["summary"]
+    finally:
+        app.dependency_overrides[get_llm] = lambda: FakeLLM()
+
+
+def test_plain_refresh_bypasses_cache():
+    """讲解 refresh=true 同样跳过缓存重新生成。"""
+    counting = CountingLLM()
+    app.dependency_overrides[get_llm] = lambda: counting
+    try:
+        book = _upload(content="# 测试书\n\n## 第一章\n" + "内容" * 1000).json()
+        url = f"/api/books/{book['id']}/chapters/0/plain?ratio=0.5"
+        r1 = client.post(url)
+        assert r1.status_code == 200
+        n1 = len(counting.prompts)
+        assert n1 > 0, "讲解应真正调用 LLM"
+        r2 = client.post(url + "&refresh=true")
+        assert r2.status_code == 200
+        assert len(counting.prompts) > n1, "讲解 refresh=true 应重新调用 LLM"
+    finally:
+        app.dependency_overrides[get_llm] = lambda: FakeLLM()
+
+
 def test_ask_question():
     book = _upload().json()
     resp = client.post(
