@@ -229,11 +229,11 @@
         }
       });
     }, function () {
-      // 预取失败 → 整体回退浏览器语音（从当前句开始）
+      // 单句合成失败：跳过该句继续下一句，不整体回退浏览器机械声
+      // （edge-tts 偶发网络抖动或特殊字符失败是正常的，跳过即可保持自然女声）
       if (serverRun !== run || run.failed) return;
-      run.failed = true;
-      serverRun = null;
-      browserSpeakFrom(run.items, run.idx, opts);
+      run.idx++;
+      playServer(run, opts);
     });
   }
 

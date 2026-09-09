@@ -192,19 +192,32 @@ const TTS = context.window.TTS;
   TTS3.stop();
   assert.ok(audioInstances[0].paused === true, 'stop 应暂停音频');
 
-  // 14. 服务器模式失败 → 回退浏览器语音
+  // 14. 服务器模式单句失败 → 跳过该句继续下一句，不整体回退机械声
   spoken.length = 0;
   audioInstances.length = 0;
+  let batchFailIndex = 0; // 第 0 批失败
   const ctx4 = {
     window: {
-      fetch: (url) => {
+      fetch: (url, options) => {
         if (url === '/api/tts/status') {
           return Promise.resolve({ ok: true, json: () => Promise.resolve({ available: true }) });
+        }
+        if (url === '/api/tts/batch') {
+          if (batchFailIndex === 0) {
+            batchFailIndex++;
+            return Promise.reject(new Error('batch 0 failed'));
+          }
+          const texts = JSON.parse(options.body).texts || [];
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ audios: texts.map((t) => b64(t)) }),
+          });
         }
         return Promise.reject(new Error('network down'));
       },
       speechSynthesis: speechMock,
     },
+    localStorage: { getItem: () => 't123' },
     SpeechSynthesisUtterance: function (text) { this.text = text; },
     Audio: AudioMock,
     URL: { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} },
@@ -215,10 +228,16 @@ const TTS = context.window.TTS;
   vm.runInContext(src, ctx4, { filename: 'tts.js' });
   const TTS4 = ctx4.window.TTS;
   await new Promise((resolve) => TTS4.probeServer(resolve));
-  TTS4.speakFrom(['回退一。', '回退二。'], 0, {});
+  // 8 句话（2 批，每批 5/3）：第一批失败 → 应跳过 5 句继续第二批
+  const items8 = [];
+  for (let i = 0; i < 8; i++) items8.push('句' + i + '。');
+  TTS4.speakFrom(items8, 0, {});
   await tick();
   await tick();
-  assert.deepStrictEqual(spoken.slice(), ['回退一。'], '服务器失败应回退浏览器语音');
+  // 第一批 5 句失败被跳过，不应触发浏览器语音
+  assert.deepStrictEqual(spoken.slice(), [], '单批失败不应回退浏览器机械声');
+  // 第二批（句 5、6、7）应正常播放
+  assert.ok(audioInstances.length >= 1, '第二批应继续服务器语音播放');
 
   // 15. 语音选择：只在普通话（zh-CN）里挑女声，绝不选粤语/台湾
   const ctx5 = {
