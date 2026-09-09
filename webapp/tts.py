@@ -11,6 +11,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +28,32 @@ _EDGE_RETRIES = 3  # Edge 合成遇瞬时网络错误时的重试次数
 
 class TTSUnavailable(Exception):
     """在线语音未配置或调用失败。"""
+
+
+def clean_markdown_for_speech(text: str) -> str:
+    """朗读前清除 markdown 语法符号，避免合成失败或读成"星号"等。
+
+    与前端 tts.js 的 cleanText 保持一致，服务端兜底清洗：
+    即使前端漏传或缓存了旧脚本，服务器合成也不会把 ** 等符号送进 TTS。
+    """
+    if not text:
+        return text
+    t = str(text)
+    t = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", t)  # ![alt](url) → alt
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)  # [text](url) → text
+    t = re.sub(r"`([^`]*)`", r"\1", t)  # `code` → code
+    t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)  # **bold** → bold
+    t = re.sub(r"\*([^*]+)\*", r"\1", t)  # *italic* → italic
+    t = re.sub(r"__([^_]+)__", r"\1", t)  # __bold__ → bold
+    t = re.sub(r"_([^_]+)_", r"\1", t)  # _italic_ → italic
+    t = re.sub(r"~~([^~]+)~~", r"\1", t)  # ~~del~~ → del
+    t = re.sub(r"^\s{0,3}#{1,6}\s+", "", t, flags=re.MULTILINE)  # # 标题
+    t = re.sub(r"^\s*>\s?", "", t, flags=re.MULTILINE)  # > 引用
+    t = re.sub(r"^\s*[-+*]\s+", "", t, flags=re.MULTILINE)  # - 列表
+    t = re.sub(r"^\s*\d+[.)]\s+", "", t, flags=re.MULTILINE)  # 1. 序号
+    t = re.sub(r"[`*_~]", "", t)  # 残余符号一律清除
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
 
 def tts_configured() -> bool:
@@ -51,7 +78,7 @@ def _volc_configured() -> bool:
 
 def synthesize(text: str) -> bytes:
     """合成单段文本为 mp3 音频字节，失败抛 TTSUnavailable。"""
-    text = (text or "").strip()
+    text = clean_markdown_for_speech(text or "")
     if not text:
         raise TTSUnavailable("合成文本为空")
     if len(text) > _MAX_TEXT:
@@ -156,7 +183,7 @@ def synthesize_batch(texts: list[str]) -> list[bytes]:
 
     任一段合成失败都会抛 TTSUnavailable，由调用方整体回退。
     """
-    texts = [(t or "").strip() for t in texts]
+    texts = [clean_markdown_for_speech(t or "") for t in texts]
     if not texts:
         raise TTSUnavailable("合成文本列表为空")
     if _volc_configured():

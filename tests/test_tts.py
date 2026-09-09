@@ -60,6 +60,33 @@ def test_tts_configured_with_key(monkeypatch):
     assert tts_mod.tts_configured() is True
 
 
+def test_clean_markdown_for_speech_bold_and_symbols():
+    """带 ** 加粗的句子（如截图里的场景）应被清洗，防止 TTS 合成失败回退机械声。"""
+    raw = "说完错误一，咱们接着看第二个坑——**大家都想轻轻松松摘果子，没人愿意去种树**。"
+    cleaned = tts_mod.clean_markdown_for_speech(raw)
+    assert "**" not in cleaned, "加粗符号应被清除，否则 edge-tts 可能失败并回退机械声"
+    assert "大家都想轻轻松松摘果子" in cleaned
+    assert cleaned.endswith("。")
+
+
+def test_clean_markdown_for_speech_variety():
+    """各种 markdown 语法与残余符号都应被清掉。"""
+    samples = [
+        ("`代码` 片段", "代码 片段"),
+        ("*斜体* 字", "斜体 字"),
+        ("~~删除~~ 线", "删除 线"),
+        ("[链接](https://x.com)", "链接"),
+        ("![图片](a.png)", "图片"),
+        ("# 标题\n正文", "标题 正文"),
+        ("- 列表项\n- 第二项", "列表项 第二项"),
+        ("1. 有序\n2. 第二", "有序 第二"),
+        ("> 引用段", "引用段"),
+        ("正常句子。", "正常句子。"),
+    ]
+    for raw, expected in samples:
+        assert tts_mod.clean_markdown_for_speech(raw) == expected, f"失败: {raw!r}"
+
+
 def test_synthesize_ok(monkeypatch):
     monkeypatch.setenv("VOLC_TTS_API_KEY", "k")
     calls = []
