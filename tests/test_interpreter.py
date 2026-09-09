@@ -1,6 +1,7 @@
 """解读器测试。"""
 
 from book_interpreter.interpreter import (
+    _chunk_content,
     _ensure_paragraphs,
     _parse_list,
     _parse_summary_with_sources,
@@ -271,6 +272,62 @@ def test_explain_chapter_by_ratio_target_matches_condense():
     explain_chapter_by_ratio(llm, chapter.title, chapter.content, 0.5)
     assert "约 1000 字" in llm.calls[-1]
     assert summary_target_words(chapter.content, 0.5) == 1000
+
+
+def _long_paras(n: int = 20, per: int = 100) -> str:
+    """构造 n 段、每段约 per*4 字的长文本（超过原 6000 截断）。"""
+    return "\n\n".join(f"第{i}段。" + "细节内容。" * per for i in range(n))
+
+
+def test_explain_plain_100pct_covers_all_content(fake_llm):
+    """原文超 6000 字时，100% 讲解必须把全部内容送进讲解，不得截断。"""
+    content = _long_paras()
+    assert count_chars(content) > 6000  # 确保覆盖原截断场景
+    explain_chapter_by_ratio(fake_llm, "长章", content, 1.0)
+    # 100% 浓缩直接返回原文不调 LLM；超长内容分块讲解 → 多次调用
+    assert len(fake_llm.calls) >= 2, "超长内容应分块讲解"
+    all_prompts = "".join(fake_llm.calls)
+    for i in range(20):
+        assert f"第{i}段" in all_prompts, f"第{i}段的内容应进入讲解输入"
+    assert "不得遗漏任何部分" in all_prompts, "讲解应明确要求覆盖全部内容"
+
+
+def test_explain_plain_low_ratio_still_covers_all_points(fake_llm):
+    """低比例讲解也要求覆盖全部要点（简略但完整）。"""
+    content = _long_paras()
+    explain_chapter_by_ratio(fake_llm, "长章", content, 0.1)
+    assert "不得遗漏任何部分" in "".join(fake_llm.calls)
+    assert "每个要点都必须提到" in "".join(fake_llm.calls)
+
+
+def test_explain_plain_chunks_joined(fake_llm):
+    """分块讲解结果用空行拼接，顺序保持。"""
+    content = _long_paras()
+    text = explain_chapter_by_ratio(fake_llm, "长章", content, 1.0)
+    block = "这一章用大白话讲：先把问题拆小，再一步步解决，就像搭积木一样。"
+    assert text == "\n\n".join([block] * len(fake_llm.calls))
+
+
+def test_chunk_content_splits_and_keeps_order():
+    """分块：每块不超上限、顺序保持、内容完整。"""
+    content = _long_paras()
+    chunks = _chunk_content(content)
+    assert len(chunks) >= 2
+    for c in chunks:
+        assert count_chars(c) <= 4500, f"块超上限: {count_chars(c)}"
+    assert "第0段" in chunks[0]
+    assert "第19段" in chunks[-1]
+    assert count_chars("".join(chunks)) == count_chars(content), "分块拼接后内容应完整"
+
+
+def test_chunk_content_splits_single_huge_paragraph():
+    """无空行的超长单段：按句子切分，仍能分块且不丢内容。"""
+    content = "。".join("句子" * 500 for _ in range(30)) + "。"
+    chunks = _chunk_content(content)
+    assert len(chunks) >= 2
+    for c in chunks:
+        assert count_chars(c) <= 4500
+    assert count_chars("".join(chunks)) == count_chars(content)
 
 
 def test_summarize_chapter_floor_100(fake_llm):

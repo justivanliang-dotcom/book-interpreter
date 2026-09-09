@@ -266,18 +266,46 @@ def summarize_chapter_with_sources(
     return summary_text, sentences
 
 
-def explain_chapter_plain(
-    llm: LLMClient, title: str, content: str, target_words: int | None = None
-) -> str:
-    """用初中生能懂的词汇对章节内容做通俗讲解。
+def _chunk_content(content: str, max_chars: int = 4500) -> list[str]:
+    """按段落把内容切成多块，每块不超过 max_chars 可见字符。
 
-    讲解目标字数默认按内容长度自适应（100~500 字）；
-    传入 target_words 时以该值为准（下限 100，不超过内容长度），
-    与浓缩摘要互补。
+    优先在段落边界（空行）切分，单段超长时按句子继续切分，
+    避免切断句子破坏语义；返回的块按原文顺序排列。超长章节
+    通过分块逐块讲解，保证任何长度都能覆盖全部内容，
+    不受单次输出上限限制。
     """
-    if target_words is None:
-        target_words = min(500, max(100, len(content)))
-    target_words = max(100, min(target_words, max(100, len(content))))
+    paras = [p.strip() for p in re.split(r"\n+", content) if p.strip()]
+    if not paras:
+        return []
+    chunks: list[str] = []
+    cur = ""
+    for p in paras:
+        if count_chars(p) > max_chars:
+            # 单段超长：按句子切分
+            for sent in re.split(r"(?<=[。！？；])", p):
+                sent = sent.strip()
+                if not sent:
+                    continue
+                if cur and count_chars(cur) + count_chars(sent) > max_chars:
+                    chunks.append(cur)
+                    cur = sent
+                else:
+                    cur = f"{cur}{sent}" if cur else sent
+        elif cur and count_chars(cur) + count_chars(p) > max_chars:
+            chunks.append(cur)
+            cur = p
+        else:
+            cur = f"{cur}\n\n{p}" if cur else p
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def _explain_block(
+    llm: LLMClient, title: str, content: str, target_words: int
+) -> str:
+    """对单块内容做大白话讲解，要求覆盖块内全部要点。"""
+    shown = _truncate(content, 20000)
     lower = max(50, int(target_words * 0.8))
     upper = int(target_words * 1.2)
     system = "你是一位擅长把复杂道理讲得通俗易懂的讲解者，用任何人都能听懂的日常语言解读书籍内容。"
@@ -287,10 +315,37 @@ def explain_chapter_plain(
         f"1. 用简单常见的词汇，不用专业术语；必须用到的术语要先打个比方解释清楚。\n"
         f"2. 多用比喻和生活中的例子，像平时聊天一样自然。\n"
         f"3. 句子短一点，一口气能读完。\n"
-        f"4. 总字数约 {target_words} 字（允许在 {lower}~{upper} 字之间）。\n\n"
-        f"章节标题：{title}\n\n章节内容：\n{_truncate(content, 6000)}"
+        f"4. 总字数约 {target_words} 字（允许在 {lower}~{upper} 字之间）。\n"
+        f"5. 必须覆盖所给内容的全部要点与细节，按原文顺序逐段推进讲解，"
+        f"不得遗漏任何部分；字数越少越简略（点到为止），但每个要点都必须提到，"
+        f"字数越多展开越详细。\n\n"
+        f"章节标题：{title}\n\n章节内容：\n{shown}"
     )
     return llm.complete(prompt, system=system, max_tokens=min(target_words * 3, 8000))
+
+
+def explain_chapter_plain(
+    llm: LLMClient, title: str, content: str, target_words: int | None = None
+) -> str:
+    """用大白话对章节内容做通俗讲解，覆盖全部内容。
+
+    讲解目标字数默认按内容长度自适应（100~500 字）；
+    传入 target_words 时以该值为准（下限 100，不超过内容长度）。
+    内容过长时按段落分块逐块讲解再拼接，确保任何长度
+    都不会因截断或输出上限而遗漏内容。
+    """
+    total_chars = count_chars(content)
+    if target_words is None:
+        target_words = min(500, max(100, total_chars))
+    target_words = max(100, min(target_words, max(100, total_chars)))
+    chunks = _chunk_content(content)
+    if len(chunks) <= 1:
+        return _explain_block(llm, title, content, target_words)
+    parts = []
+    for chunk in chunks:
+        chunk_target = max(100, int(target_words * count_chars(chunk) / total_chars))
+        parts.append(_explain_block(llm, title, chunk, chunk_target))
+    return "\n\n".join(parts)
 
 
 def explain_chapter_by_ratio(
@@ -301,9 +356,12 @@ def explain_chapter_by_ratio(
     讲解目标字数与浓缩保持一致：原文可见字数 × 比例
     （下限 100，上限原文长度），比例越大讲解越详细；
     ratio 为 1.0 时浓缩直接返回原文，讲解全文。
+    目标字数按全文计算（不截断），内容过长时讲解内部
+    会自动分块逐块讲解并拼接，保证覆盖全部内容。
     """
     condensed = summarize_chapter(llm, title, content, ratio)
-    target_words = summary_target_words(content, ratio)
+    src_chars = count_chars(content)
+    target_words = min(max(100, int(src_chars * ratio)), src_chars)
     return explain_chapter_plain(llm, title, condensed, target_words=target_words)
 
 
